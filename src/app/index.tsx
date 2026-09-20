@@ -1,9 +1,10 @@
 import { SymbolView } from "expo-symbols";
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import { GlassButton } from "@/components/glass-button";
 import { Money } from "@/components/money";
+import { MonthPickerSheet } from "@/components/month-picker-sheet";
 import { PreviewEditSheet } from "@/components/preview-edit-sheet";
 import { Screen } from "@/components/screen";
 import { SectionCard } from "@/components/section-card";
@@ -13,7 +14,13 @@ import { radius, spacing, typography, useAppColors } from "@/theme/tokens";
 export default function BudgetScreen() {
   const colors = useAppColors();
   const [isAddGroupOpen, setIsAddGroupOpen] = useState(false);
+  const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState({ month: 8, year: 2026 });
   const [previewGroups, setPreviewGroups] = useState<string[]>([]);
+  const monthLabel = new Intl.DateTimeFormat("en-GB", {
+    month: "long",
+    year: "numeric",
+  }).format(new Date(selectedMonth.year, selectedMonth.month, 1));
 
   return (
     <Screen>
@@ -22,13 +29,21 @@ export default function BudgetScreen() {
           <Text style={[styles.eyebrow, { color: colors.secondaryText }]}>
             MONTHLY PLAN
           </Text>
-          <View style={styles.monthTitleRow}>
+          <Pressable
+            accessibilityLabel={`Choose budget month, currently ${monthLabel}`}
+            accessibilityRole="button"
+            onPress={() => setIsMonthPickerOpen(true)}
+            style={({ pressed }) => [
+              styles.monthTitleRow,
+              pressed && styles.monthTitlePressed,
+            ]}
+          >
             <Text
               accessibilityRole="header"
               numberOfLines={1}
               style={[styles.title, { color: colors.text }]}
             >
-              September 2026
+              {monthLabel}
             </Text>
             <SymbolView
               fallback={
@@ -43,7 +58,7 @@ export default function BudgetScreen() {
               tintColor={colors.accent}
               weight="semibold"
             />
-          </View>
+          </Pressable>
         </View>
       </View>
 
@@ -140,6 +155,17 @@ export default function BudgetScreen() {
         }}
         visible={isAddGroupOpen}
       />
+      {isMonthPickerOpen ? (
+        <MonthPickerSheet
+          month={selectedMonth.month}
+          onClose={() => setIsMonthPickerOpen(false)}
+          onSelect={(year, month) => {
+            setSelectedMonth({ month, year });
+            setIsMonthPickerOpen(false);
+          }}
+          year={selectedMonth.year}
+        />
+      ) : null}
     </Screen>
   );
 }
@@ -168,10 +194,12 @@ const styles = StyleSheet.create({
   },
   headingBlock: { flex: 1 },
   monthTitleRow: {
+    alignSelf: "flex-start",
     alignItems: "center",
     flexDirection: "row",
     gap: spacing.sm,
   },
+  monthTitlePressed: { opacity: 0.65 },
   eyebrow: { ...typography.eyebrow, marginBottom: spacing.xs },
   title: typography.largeTitle,
   chevronFallback: { ...typography.title2, lineHeight: 20 },
