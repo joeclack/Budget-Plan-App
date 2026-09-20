@@ -87,6 +87,7 @@ export function GlassButton({
         <View
           style={[
             styles.surface,
+            styles.fallbackSurface,
             compact && styles.compactSurface,
             {
               backgroundColor: prominent ? colors.accent : colors.control,
@@ -107,12 +108,12 @@ const styles = StyleSheet.create({
   surface: {
     alignItems: "center",
     borderRadius: radius.pill,
-    borderWidth: 1,
     justifyContent: "center",
     minHeight: 44,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
   },
+  fallbackSurface: { borderWidth: 1 },
   compactSurface: {
     minHeight: 38,
     paddingHorizontal: spacing.md,
