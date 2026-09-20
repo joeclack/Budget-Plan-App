@@ -108,6 +108,7 @@ export function PreviewEditSheet({
           <Text style={[styles.label, { color: colors.text }]}>Group name</Text>
           <TextInput
             accessibilityLabel="Budget group name"
+            autoFocus
             onChangeText={setName}
             onSubmitEditing={save}
             placeholder="For example, Travel"
