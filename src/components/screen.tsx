@@ -1,5 +1,5 @@
 import type { PropsWithChildren } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { Platform, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { spacing, useAppColors } from "@/theme/tokens";
@@ -14,10 +14,16 @@ export function Screen({ children }: PropsWithChildren) {
         alwaysBounceVertical={false}
         contentContainerStyle={[
           styles.content,
-          { paddingTop: insets.top + spacing.md },
+          {
+            // Native tabs float at the top on web and at the bottom on iPhone.
+            paddingTop:
+              insets.top + spacing.md + (Platform.OS === "web" ? 64 : 0),
+            paddingBottom: insets.bottom + spacing.xxl + spacing.xl,
+          },
         ]}
         contentInsetAdjustmentBehavior="never"
         keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
         {children}

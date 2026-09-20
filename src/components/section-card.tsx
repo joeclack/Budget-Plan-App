@@ -1,4 +1,4 @@
-import type { PropsWithChildren } from "react";
+import type { PropsWithChildren, ReactNode } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
 import { Money } from "@/components/money";
@@ -7,7 +7,8 @@ import { radius, spacing, typography, useAppColors } from "@/theme/tokens";
 type SectionCardProps = PropsWithChildren<{
   subtitle?: string;
   title: string;
-  total: number;
+  total?: number;
+  totalContent?: ReactNode;
 }>;
 
 export function SectionCard({
@@ -15,6 +16,7 @@ export function SectionCard({
   subtitle,
   title,
   total,
+  totalContent,
 }: SectionCardProps) {
   const colors = useAppColors();
 
@@ -39,7 +41,7 @@ export function SectionCard({
             </Text>
           ) : null}
         </View>
-        <Money value={total} />
+        {totalContent ?? (total !== undefined ? <Money value={total} /> : null)}
       </View>
       <View>{children}</View>
     </View>

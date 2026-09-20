@@ -1,21 +1,32 @@
-import type { SQLiteDatabase } from "expo-sqlite";
+import {
+  assertForeignKeys,
+  inTransaction,
+  serializeDatabase,
+  type SqlDatabase,
+} from "./sql";
 
-const DATABASE_VERSION = 1;
+export const DATABASE_VERSION = 2;
 
-export async function migrateDatabase(db: SQLiteDatabase) {
-  await db.execAsync("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+export async function migrateDatabase(db: SqlDatabase) {
+  return serializeDatabase(db, async () => {
+    await db.execAsync("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+    await inTransaction(db, async (transaction) => {
+      const result = await transaction.getFirstAsync<{ user_version: number }>(
+        "PRAGMA user_version",
+      );
+      const currentVersion = result?.user_version ?? 0;
 
-  const result = await db.getFirstAsync<{ user_version: number }>(
-    "PRAGMA user_version",
-  );
-  const currentVersion = result?.user_version ?? 0;
+      if (currentVersion > DATABASE_VERSION) {
+        throw new Error(
+          "This database was created by a newer app version. Update the app before opening it.",
+        );
+      }
+      if (currentVersion === DATABASE_VERSION) {
+        return;
+      }
 
-  if (currentVersion >= DATABASE_VERSION) {
-    return;
-  }
-
-  if (currentVersion === 0) {
-    await db.execAsync(`
+      if (currentVersion === 0) {
+        await transaction.execAsync(`
       CREATE TABLE budget_months (
         id TEXT PRIMARY KEY NOT NULL,
         year INTEGER NOT NULL,
@@ -79,7 +90,16 @@ export async function migrateDatabase(db: SQLiteDatabase) {
         updated_at TEXT NOT NULL
       );
     `);
-  }
+      }
 
-  await db.execAsync(`PRAGMA user_version = ${DATABASE_VERSION};`);
+      await transaction.execAsync(`
+    ALTER TABLE budget_months ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 0);
+    CREATE INDEX budget_groups_month_order ON budget_groups(month_id, sort_order, id);
+    CREATE INDEX budget_rows_group_order ON budget_rows(group_id, sort_order, id);
+    CREATE INDEX pay_snapshots_budget_row ON pay_estimate_snapshots(budget_row_id);
+  `);
+      await assertForeignKeys(transaction);
+      await transaction.execAsync(`PRAGMA user_version = ${DATABASE_VERSION};`);
+    });
+  });
 }
