@@ -1,21 +1,30 @@
 import { StyleSheet, Text } from "react-native";
 
 import { formatGBP } from "@/lib/money";
+import { formatMinor } from "@/domain/budget";
 import { typography, useAppColors } from "@/theme/tokens";
 
 type MoneyProps = {
   prefix?: string;
-  value: number;
   variant?: "body" | "hero" | "heroSmall";
-};
+} & (
+  { value: number; minorValue?: never } | { value?: never; minorValue: number }
+);
 
-export function Money({ prefix = "", value, variant = "body" }: MoneyProps) {
+export function Money({
+  prefix = "",
+  value,
+  minorValue,
+  variant = "body",
+}: MoneyProps) {
   const colors = useAppColors();
   const isHero = variant !== "body";
+  const formatted =
+    minorValue !== undefined ? formatMinor(minorValue) : formatGBP(value!);
 
   return (
     <Text
-      accessibilityLabel={`${prefix === "−" ? "minus " : ""}${formatGBP(value)}`}
+      accessibilityLabel={`${prefix === "−" ? "minus " : ""}${formatted}`}
       style={[
         variant === "hero" && styles.hero,
         variant === "heroSmall" && styles.heroSmall,
@@ -24,7 +33,7 @@ export function Money({ prefix = "", value, variant = "body" }: MoneyProps) {
       ]}
     >
       {prefix}
-      {formatGBP(value)}
+      {formatted}
     </Text>
   );
 }

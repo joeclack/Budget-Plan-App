@@ -1,178 +1,402 @@
 import { SymbolView } from "expo-symbols";
 import { useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 
+import { BudgetInputSheet } from "@/components/budget-input-sheet";
 import { GlassButton } from "@/components/glass-button";
 import { Money } from "@/components/money";
 import { MonthPickerSheet } from "@/components/month-picker-sheet";
-import { PreviewEditSheet } from "@/components/preview-edit-sheet";
 import { Screen } from "@/components/screen";
 import { SectionCard } from "@/components/section-card";
-import { sampleBudget } from "@/data/sample-budget";
+import { describeRule, evaluateBudget, parseMoney } from "@/domain/budget";
+import type { AmountResult, BudgetRow } from "@/domain/budget/types";
+import { useBudget } from "@/features/budget/use-budget";
 import { radius, spacing, typography, useAppColors } from "@/theme/tokens";
+
+type Editor =
+  { kind: "group" } | { kind: "template" } | { kind: "amount"; row: BudgetRow };
+const monthFormatter = new Intl.DateTimeFormat("en-GB", {
+  month: "long",
+  year: "numeric",
+});
+const monthName = (year: number, month: number) =>
+  monthFormatter.format(new Date(year, month - 1, 1));
 
 export default function BudgetScreen() {
   const colors = useAppColors();
-  const [isAddGroupOpen, setIsAddGroupOpen] = useState(false);
+  const budget = useBudget();
   const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState({ month: 8, year: 2026 });
-  const [previewGroups, setPreviewGroups] = useState<string[]>([]);
-  const monthLabel = new Intl.DateTimeFormat("en-GB", {
-    month: "long",
-    year: "numeric",
-  }).format(new Date(selectedMonth.year, selectedMonth.month, 1));
+  const [editor, setEditor] = useState<Editor | null>(null);
+  const [inputError, setInputError] = useState<string | null>(null);
+  const { state, busy, error } = budget;
+
+  if (!state) {
+    return (
+      <Screen>
+        <Text style={[styles.title, { color: colors.text }]}>Your budget</Text>
+        {error ? (
+          <>
+            <Text style={{ color: colors.text }}>{error}</Text>
+            <GlassButton
+              accessibilityLabel="Retry opening budgets"
+              label="Try again"
+              disabled={busy}
+              onPress={() => void budget.retry()}
+            />
+          </>
+        ) : (
+          <ActivityIndicator
+            accessibilityLabel="Opening budgets"
+            color={colors.accent}
+          />
+        )}
+      </Screen>
+    );
+  }
+
+  const { document, period } = state;
+  const evaluation = document ? evaluateBudget(document) : null;
+  const monthLabel = monthName(period.year, period.month);
+  function openEditor(next: Editor) {
+    budget.clearError();
+    setInputError(null);
+    setEditor(next);
+  }
 
   return (
     <Screen>
-      <View style={styles.headerRow}>
-        <View style={styles.headingBlock}>
-          <Text style={[styles.eyebrow, { color: colors.secondaryText }]}>
-            MONTHLY PLAN
+      <View>
+        <Text style={[styles.eyebrow, { color: colors.secondaryText }]}>
+          MONTHLY PLAN
+        </Text>
+        <Pressable
+          accessibilityLabel={`Choose budget month, currently ${monthLabel}`}
+          accessibilityRole="button"
+          disabled={busy}
+          onPress={() => setIsMonthPickerOpen(true)}
+          style={({ pressed }) => [
+            styles.monthTitleRow,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.75}
+            style={[styles.title, { color: colors.text }]}
+          >
+            {monthLabel}
           </Text>
-          <Pressable
-            accessibilityLabel={`Choose budget month, currently ${monthLabel}`}
-            accessibilityRole="button"
-            onPress={() => setIsMonthPickerOpen(true)}
-            style={({ pressed }) => [
-              styles.monthTitleRow,
-              pressed && styles.monthTitlePressed,
+          <SymbolView
+            fallback={<Text style={{ color: colors.accent }}>⌄</Text>}
+            name="chevron.down"
+            size={18}
+            tintColor={colors.accent}
+            weight="semibold"
+          />
+        </Pressable>
+      </View>
+
+      {error && !editor ? (
+        <View style={[styles.message, { backgroundColor: colors.accentSoft }]}>
+          <Text style={{ color: colors.text }}>{error}</Text>
+          <GlassButton
+            accessibilityLabel="Reload saved budgets"
+            label="Reload saved budgets"
+            onPress={() => void budget.retry()}
+            disabled={busy}
+          />
+        </View>
+      ) : null}
+
+      {document && evaluation ? (
+        <>
+          <View
+            accessibilityLabel="Budget summary"
+            style={[
+              styles.summary,
+              { backgroundColor: colors.hero, borderColor: colors.heroBorder },
             ]}
           >
             <Text
-              accessibilityRole="header"
-              numberOfLines={1}
-              style={[styles.title, { color: colors.text }]}
+              style={[styles.summaryLabel, { color: colors.heroSecondaryText }]}
             >
-              {monthLabel}
+              Left to plan
             </Text>
-            <SymbolView
-              fallback={
-                <Text
-                  style={[styles.chevronFallback, { color: colors.accent }]}
-                >
-                  ⌄
-                </Text>
-              }
-              name="chevron.down"
-              size={18}
-              tintColor={colors.accent}
-              weight="semibold"
+            <BudgetAmount result={evaluation.leftToPlan} variant="hero" />
+            <View style={styles.summaryBreakdown}>
+              <SummaryItem label="Income" result={evaluation.income} />
+              <View
+                style={[styles.divider, { backgroundColor: colors.heroBorder }]}
+              />
+              <SummaryItem label="Allocated" result={evaluation.allocated} />
+            </View>
+          </View>
+
+          <View style={styles.sectionHeading}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Your plan
+            </Text>
+            <GlassButton
+              accessibilityLabel="Add a budget group"
+              compact
+              disabled={busy || document.month.isLocked}
+              label="Add"
+              onPress={() => openEditor({ kind: "group" })}
             />
-          </Pressable>
-        </View>
-      </View>
-
-      <View
-        accessibilityLabel="Budget summary"
-        style={[
-          styles.summary,
-          { backgroundColor: colors.hero, borderColor: colors.heroBorder },
-        ]}
-      >
-        <Text
-          style={[styles.summaryLabel, { color: colors.heroSecondaryText }]}
-        >
-          Left to plan
-        </Text>
-        <Money value={sampleBudget.leftToPlan} variant="hero" />
-        <View style={styles.summaryBreakdown}>
-          <SummaryItem label="Income" value={sampleBudget.income} />
-          <View
-            style={[styles.divider, { backgroundColor: colors.heroBorder }]}
-          />
-          <SummaryItem label="Allocated" value={sampleBudget.allocated} />
-        </View>
-      </View>
-
-      <View style={styles.sectionHeading}>
-        <Text
-          accessibilityRole="header"
-          style={[styles.sectionTitle, { color: colors.text }]}
-        >
-          Your plan
-        </Text>
-        <GlassButton
-          accessibilityLabel="Add a budget group"
-          compact
-          label="Add"
-          onPress={() => setIsAddGroupOpen(true)}
-        />
-      </View>
-
-      {sampleBudget.groups.map((group) => (
-        <SectionCard
-          key={group.id}
-          subtitle={group.subtitle}
-          title={group.title}
-          total={group.total}
-        >
-          {group.rows.map((row, index) => (
-            <View
-              key={row.id}
-              style={[
-                styles.row,
-                index > 0 && {
-                  borderTopColor: colors.separator,
-                  borderTopWidth: StyleSheet.hairlineWidth,
-                },
-              ]}
-            >
-              <View style={styles.rowCopy}>
-                <Text style={[styles.rowLabel, { color: colors.text }]}>
-                  {row.label}
-                </Text>
-                {row.detail ? (
+          </View>
+          {document.groups.length === 0 ? (
+            <Text style={{ color: colors.secondaryText }}>
+              Your month is ready. Add a group to begin.
+            </Text>
+          ) : null}
+          {[...document.groups]
+            .sort((a, b) => a.sortOrder - b.sortOrder)
+            .map((group) => (
+              <SectionCard
+                key={group.id}
+                title={group.title}
+                subtitle={
+                  {
+                    income: "Money coming in",
+                    expense: "Planned spending",
+                    saving: "Money set aside",
+                  }[group.classification]
+                }
+                totalContent={
+                  <BudgetAmount result={evaluation.groups[group.id]} />
+                }
+              >
+                {document.rows
+                  .filter((row) => row.groupId === group.id)
+                  .sort((a, b) => a.sortOrder - b.sortOrder)
+                  .map((row, index) => (
+                    <Pressable
+                      key={row.id}
+                      accessibilityRole={
+                        row.rule.kind === "fixed" ? "button" : undefined
+                      }
+                      accessibilityLabel={
+                        row.rule.kind === "fixed"
+                          ? `Edit ${row.label}`
+                          : undefined
+                      }
+                      disabled={
+                        busy ||
+                        document.month.isLocked ||
+                        row.rule.kind !== "fixed"
+                      }
+                      onPress={() => openEditor({ kind: "amount", row })}
+                      style={({ pressed }) => [
+                        styles.row,
+                        index > 0 && {
+                          borderTopColor: colors.separator,
+                          borderTopWidth: StyleSheet.hairlineWidth,
+                        },
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <View style={styles.rowCopy}>
+                        <Text style={[styles.rowLabel, { color: colors.text }]}>
+                          {row.label}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.rowDetail,
+                            { color: colors.secondaryText },
+                          ]}
+                        >
+                          {row.rule.kind === "fixed"
+                            ? "Tap to edit amount"
+                            : describeRule(row.rule, document)}
+                          {row.allocationRole === "informational"
+                            ? " · display only"
+                            : ""}
+                        </Text>
+                      </View>
+                      <BudgetAmount result={evaluation.rows[row.id]} />
+                    </Pressable>
+                  ))}
+                {!document.rows.some((row) => row.groupId === group.id) ? (
                   <Text
-                    style={[styles.rowDetail, { color: colors.secondaryText }]}
+                    style={[styles.emptyGroup, { color: colors.secondaryText }]}
                   >
-                    {row.detail}
+                    No rows yet.
                   </Text>
                 ) : null}
-              </View>
-              <Money value={row.amount} />
-            </View>
-          ))}
-        </SectionCard>
-      ))}
-
-      {previewGroups.map((groupName, index) => (
-        <SectionCard key={`${groupName}-${index}`} title={groupName} total={0}>
-          <Text style={[styles.emptyGroup, { color: colors.secondaryText }]}>
-            Ready for budget rows in Milestone 2.
+              </SectionCard>
+            ))}
+          <GlassButton
+            accessibilityLabel="Save this budget as a template"
+            disabled={busy}
+            label="Save as template"
+            onPress={() => openEditor({ kind: "template" })}
+          />
+          <Text style={[styles.footnote, { color: colors.secondaryText }]}>
+            {busy
+              ? "Saving…"
+              : Platform.OS === "web"
+                ? "Browser preview · saved in this browser"
+                : "Saved on this device"}
+            {state.templates.length
+              ? ` · ${state.templates.length} ${state.templates.length === 1 ? "template" : "templates"}`
+              : ""}
           </Text>
-        </SectionCard>
-      ))}
+        </>
+      ) : (
+        <View style={styles.emptyMonth}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+            Start this month
+          </Text>
+          <Text style={{ color: colors.secondaryText }}>
+            Choose a starting point for {monthLabel}.
+          </Text>
+          <GlassButton
+            accessibilityLabel="Create blank month"
+            label="Start blank"
+            disabled={busy}
+            onPress={() => void budget.createMonth()}
+            prominent
+          />
+          {state.months.length ? (
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Copy a saved month
+            </Text>
+          ) : null}
+          {state.months.map((source) => (
+            <GlassButton
+              key={source.id}
+              accessibilityLabel={`Copy ${monthName(source.year, source.month)}`}
+              label={`Copy ${monthName(source.year, source.month)}`}
+              disabled={busy}
+              onPress={() => void budget.createMonth(source.id)}
+            />
+          ))}
+          {state.templates.length ? (
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Use a template
+            </Text>
+          ) : null}
+          {state.templates.map((template) => (
+            <GlassButton
+              key={template.id}
+              accessibilityLabel={`Use template ${template.name}`}
+              label={template.name}
+              disabled={busy}
+              onPress={() => void budget.createMonth(undefined, template.id)}
+            />
+          ))}
+        </View>
+      )}
 
-      <Text style={[styles.footnote, { color: colors.secondaryText }]}>
-        Sample data for the Milestone 1 device preview.
-      </Text>
-
-      <PreviewEditSheet
-        onClose={() => setIsAddGroupOpen(false)}
-        onSave={(name) => {
-          setPreviewGroups((groups) => [...groups, name]);
-          setIsAddGroupOpen(false);
-        }}
-        visible={isAddGroupOpen}
-      />
+      {editor ? (
+        <BudgetInputSheet
+          title={
+            editor.kind === "group"
+              ? "Add a group"
+              : editor.kind === "template"
+                ? "Save a template"
+                : editor.row.label
+          }
+          label={
+            editor.kind === "group"
+              ? "Group name"
+              : editor.kind === "template"
+                ? "Template name"
+                : "Amount in pounds"
+          }
+          initialValue={
+            editor.kind === "amount" && editor.row.rule.kind === "fixed"
+              ? moneyInput(editor.row.rule.amountMinor)
+              : ""
+          }
+          decimal={editor.kind === "amount"}
+          busy={busy}
+          error={inputError ?? error}
+          onClose={() => {
+            setEditor(null);
+            setInputError(null);
+          }}
+          onSave={async (value) => {
+            setInputError(null);
+            if (editor.kind === "group") return budget.addGroup(value);
+            if (editor.kind === "template") return budget.saveTemplate(value);
+            try {
+              return await budget.updateAmount(
+                editor.row.id,
+                parseMoney(value),
+              );
+            } catch (reason) {
+              setInputError(
+                reason instanceof Error
+                  ? reason.message
+                  : "Enter a valid amount.",
+              );
+              return false;
+            }
+          }}
+        />
+      ) : null}
       {isMonthPickerOpen ? (
         <MonthPickerSheet
-          month={selectedMonth.month}
+          month={period.month - 1}
+          year={period.year}
           onClose={() => setIsMonthPickerOpen(false)}
           onSelect={(year, month) => {
-            setSelectedMonth({ month, year });
             setIsMonthPickerOpen(false);
+            void budget.selectPeriod(year, month + 1);
           }}
-          year={selectedMonth.year}
         />
       ) : null}
     </Screen>
   );
 }
 
-function SummaryItem({ label, value }: { label: string; value: number }) {
-  const colors = useAppColors();
+function moneyInput(value: number) {
+  const magnitude = Math.abs(value);
+  return `${value < 0 ? "-" : ""}${Math.trunc(magnitude / 100)}.${String(magnitude % 100).padStart(2, "0")}`;
+}
 
+function BudgetAmount({
+  result,
+  variant = "body",
+}: {
+  result: AmountResult | undefined;
+  variant?: "body" | "hero" | "heroSmall";
+}) {
+  const colors = useAppColors();
+  return result?.ok ? (
+    <Money minorValue={result.amountMinor} variant={variant} />
+  ) : (
+    <Text
+      style={[
+        styles.rowDetail,
+        {
+          color: variant === "body" ? colors.text : colors.heroText,
+          maxWidth: 220,
+        },
+      ]}
+    >
+      {result && !result.ok ? result.error.message : "Calculation unavailable"}
+    </Text>
+  );
+}
+
+function SummaryItem({
+  label,
+  result,
+}: {
+  label: string;
+  result: AmountResult;
+}) {
+  const colors = useAppColors();
   return (
     <View style={styles.summaryItem}>
       <Text
@@ -180,29 +404,22 @@ function SummaryItem({ label, value }: { label: string; value: number }) {
       >
         {label}
       </Text>
-      <Money value={value} variant="heroSmall" />
+      <BudgetAmount result={result} variant="heroSmall" />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  headerRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.md,
-    justifyContent: "space-between",
-  },
-  headingBlock: { flex: 1 },
   monthTitleRow: {
     alignSelf: "flex-start",
+    maxWidth: "100%",
     alignItems: "center",
     flexDirection: "row",
     gap: spacing.sm,
   },
-  monthTitlePressed: { opacity: 0.65 },
+  pressed: { opacity: 0.65 },
   eyebrow: { ...typography.eyebrow, marginBottom: spacing.xs },
-  title: typography.largeTitle,
-  chevronFallback: { ...typography.title2, lineHeight: 20 },
+  title: { ...typography.largeTitle, flexShrink: 1 },
   summary: {
     borderRadius: radius.xl,
     borderWidth: 1,
@@ -239,4 +456,6 @@ const styles = StyleSheet.create({
   rowDetail: typography.caption,
   footnote: { ...typography.caption, textAlign: "center" },
   emptyGroup: { ...typography.body, paddingVertical: spacing.md },
+  emptyMonth: { gap: spacing.md },
+  message: { padding: spacing.md, borderRadius: radius.md, gap: spacing.sm },
 });
