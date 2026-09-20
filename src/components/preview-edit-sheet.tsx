@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   AccessibilityInfo,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -45,26 +46,39 @@ export function PreviewEditSheet({
     setName("");
   }
 
+  function close() {
+    Keyboard.dismiss();
+    setName("");
+    onClose();
+  }
+
   return (
     <Modal
       animationType={reduceMotion ? "none" : "slide"}
-      onRequestClose={onClose}
+      onRequestClose={close}
       presentationStyle="pageSheet"
       transparent={Platform.OS !== "ios"}
       visible={visible}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={[styles.keyboardView, Platform.OS !== "ios" && styles.backdrop]}
+        style={[
+          styles.keyboardView,
+          Platform.OS === "ios" ? styles.iosKeyboardView : styles.backdrop,
+          Platform.OS === "ios" && { backgroundColor: colors.surface },
+        ]}
       >
-        <Pressable
-          accessibilityRole="button"
-          onPress={onClose}
-          style={styles.dismissArea}
-        />
+        {Platform.OS !== "ios" ? (
+          <Pressable
+            accessibilityRole="button"
+            onPress={close}
+            style={styles.dismissArea}
+          />
+        ) : null}
         <View
           style={[
             styles.sheet,
+            Platform.OS !== "ios" && styles.fallbackSheet,
             { backgroundColor: colors.surface, borderColor: colors.border },
           ]}
         >
@@ -83,7 +97,7 @@ export function PreviewEditSheet({
             <Pressable
               accessibilityLabel="Close add group sheet"
               accessibilityRole="button"
-              onPress={onClose}
+              onPressIn={close}
             >
               <Text style={[styles.close, { color: colors.accent }]}>
                 Close
@@ -94,7 +108,6 @@ export function PreviewEditSheet({
           <Text style={[styles.label, { color: colors.text }]}>Group name</Text>
           <TextInput
             accessibilityLabel="Budget group name"
-            autoFocus
             onChangeText={setName}
             onSubmitEditing={save}
             placeholder="For example, Travel"
@@ -124,16 +137,22 @@ export function PreviewEditSheet({
 }
 
 const styles = StyleSheet.create({
-  keyboardView: { flex: 1, justifyContent: "flex-end" },
-  backdrop: { backgroundColor: "rgba(0,0,0,0.36)" },
+  keyboardView: { flex: 1 },
+  iosKeyboardView: { justifyContent: "flex-start", paddingTop: spacing.lg },
+  backdrop: {
+    backgroundColor: "rgba(0,0,0,0.36)",
+    justifyContent: "flex-end",
+  },
   dismissArea: { flex: 1 },
   sheet: {
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
-    borderTopWidth: StyleSheet.hairlineWidth,
     gap: spacing.md,
     padding: spacing.lg,
     paddingBottom: spacing.xxl,
+  },
+  fallbackSheet: {
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   header: {
     alignItems: "flex-start",
