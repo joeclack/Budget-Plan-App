@@ -1,3 +1,4 @@
+import { SymbolView } from "expo-symbols";
 import { useState } from "react";
 import { StyleSheet, Text, View } from "react-native";
 
@@ -21,17 +22,29 @@ export default function BudgetScreen() {
           <Text style={[styles.eyebrow, { color: colors.secondaryText }]}>
             MONTHLY PLAN
           </Text>
-          <Text
-            accessibilityRole="header"
-            style={[styles.title, { color: colors.text }]}
-          >
-            September 2026
-          </Text>
+          <View style={styles.monthTitleRow}>
+            <Text
+              accessibilityRole="header"
+              numberOfLines={1}
+              style={[styles.title, { color: colors.text }]}
+            >
+              September 2026
+            </Text>
+            <SymbolView
+              fallback={
+                <Text
+                  style={[styles.chevronFallback, { color: colors.accent }]}
+                >
+                  ⌄
+                </Text>
+              }
+              name="chevron.down"
+              size={18}
+              tintColor={colors.accent}
+              weight="semibold"
+            />
+          </View>
         </View>
-        <GlassButton
-          accessibilityLabel="Choose budget month"
-          label="Sep 2026"
-        />
       </View>
 
       <View
@@ -154,8 +167,14 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   headingBlock: { flex: 1 },
+  monthTitleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
   eyebrow: { ...typography.eyebrow, marginBottom: spacing.xs },
   title: typography.largeTitle,
+  chevronFallback: { ...typography.title2, lineHeight: 20 },
   summary: {
     borderRadius: radius.xl,
     borderWidth: 1,
