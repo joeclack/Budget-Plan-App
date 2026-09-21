@@ -15,13 +15,32 @@ import { Money } from "@/components/money";
 import { MonthPickerSheet } from "@/components/month-picker-sheet";
 import { Screen } from "@/components/screen";
 import { SectionCard } from "@/components/section-card";
-import { describeRule, evaluateBudget, parseMoney } from "@/domain/budget";
-import type { AmountResult, BudgetRow } from "@/domain/budget/types";
+import { describeRule, evaluateBudget } from "@/domain/budget";
+import type {
+  AmountResult,
+  BudgetRow,
+  BudgetGroup,
+} from "@/domain/budget/types";
+import {
+  ArrangeEditor,
+  DeleteEditor,
+  GroupEditor,
+  RowEditor,
+} from "@/features/budget/budget-editors";
+import { Action, EditorSheet, Note } from "@/features/budget/editor-controls";
 import { useBudget } from "@/features/budget/use-budget";
 import { radius, spacing, typography, useAppColors } from "@/theme/tokens";
 
 type Editor =
-  { kind: "group" } | { kind: "template" } | { kind: "amount"; row: BudgetRow };
+  | { kind: "group"; group?: BudgetGroup }
+  | { kind: "template" }
+  | { kind: "row"; row?: BudgetRow; groupId: string }
+  | { kind: "arrange" }
+  | { kind: "lock" }
+  | {
+      kind: "delete";
+      target: { kind: "row" | "group"; id: string; label: string };
+    };
 const monthFormatter = new Intl.DateTimeFormat("en-GB", {
   month: "long",
   year: "numeric",
@@ -34,7 +53,6 @@ export default function BudgetScreen() {
   const budget = useBudget();
   const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
-  const [inputError, setInputError] = useState<string | null>(null);
   const { state, busy, error } = budget;
 
   if (!state) {
@@ -66,7 +84,6 @@ export default function BudgetScreen() {
   const monthLabel = monthName(period.year, period.month);
   function openEditor(next: Editor) {
     budget.clearError();
-    setInputError(null);
     setEditor(next);
   }
 
@@ -152,6 +169,37 @@ export default function BudgetScreen() {
               onPress={() => openEditor({ kind: "group" })}
             />
           </View>
+          <View
+            style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}
+          >
+            <GlassButton
+              accessibilityLabel="Arrange groups and rows"
+              label="Arrange"
+              compact
+              disabled={
+                busy || document.month.isLocked || !document.groups.length
+              }
+              onPress={() => openEditor({ kind: "arrange" })}
+            />
+            <GlassButton
+              accessibilityLabel={
+                document.month.isLocked ? "Unlock month" : "Lock month"
+              }
+              label={document.month.isLocked ? "Unlock month" : "Lock month"}
+              compact
+              disabled={busy}
+              onPress={() => openEditor({ kind: "lock" })}
+            />
+          </View>
+          {document.month.isLocked ? (
+            <Text style={{ color: colors.secondaryText }}>
+              This month is locked. Unlock it to make changes.
+            </Text>
+          ) : (
+            <Text style={{ color: colors.secondaryText }}>
+              Tap a row to edit its name, amount or calculation.
+            </Text>
+          )}
           {document.groups.length === 0 ? (
             <Text style={{ color: colors.secondaryText }}>
               Your month is ready. Add a group to begin.
@@ -180,20 +228,12 @@ export default function BudgetScreen() {
                   .map((row, index) => (
                     <Pressable
                       key={row.id}
-                      accessibilityRole={
-                        row.rule.kind === "fixed" ? "button" : undefined
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit ${row.label}`}
+                      disabled={busy || document.month.isLocked}
+                      onPress={() =>
+                        openEditor({ kind: "row", row, groupId: group.id })
                       }
-                      accessibilityLabel={
-                        row.rule.kind === "fixed"
-                          ? `Edit ${row.label}`
-                          : undefined
-                      }
-                      disabled={
-                        busy ||
-                        document.month.isLocked ||
-                        row.rule.kind !== "fixed"
-                      }
-                      onPress={() => openEditor({ kind: "amount", row })}
                       style={({ pressed }) => [
                         styles.row,
                         index > 0 && {
@@ -214,7 +254,10 @@ export default function BudgetScreen() {
                           ]}
                         >
                           {row.rule.kind === "fixed"
-                            ? "Tap to edit amount"
+                            ? row.notes ||
+                              (document.month.isLocked
+                                ? "Fixed amount"
+                                : "Tap to edit")
                             : describeRule(row.rule, document)}
                           {row.allocationRole === "informational"
                             ? " · display only"
@@ -230,6 +273,33 @@ export default function BudgetScreen() {
                   >
                     No rows yet.
                   </Text>
+                ) : null}
+                {!document.month.isLocked ? (
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      flexWrap: "wrap",
+                      gap: spacing.sm,
+                      paddingBottom: spacing.md,
+                    }}
+                  >
+                    <GlassButton
+                      accessibilityLabel={`Add row to ${group.title}`}
+                      label="Add row"
+                      compact
+                      disabled={busy}
+                      onPress={() =>
+                        openEditor({ kind: "row", groupId: group.id })
+                      }
+                    />
+                    <GlassButton
+                      accessibilityLabel={`Edit group ${group.title}`}
+                      label="Edit group"
+                      compact
+                      disabled={busy}
+                      onPress={() => openEditor({ kind: "group", group })}
+                    />
+                  </View>
                 ) : null}
               </SectionCard>
             ))}
@@ -296,53 +366,103 @@ export default function BudgetScreen() {
         </View>
       )}
 
-      {editor ? (
+      {editor?.kind === "template" ? (
         <BudgetInputSheet
-          title={
-            editor.kind === "group"
-              ? "Add a group"
-              : editor.kind === "template"
-                ? "Save a template"
-                : editor.row.label
-          }
-          label={
-            editor.kind === "group"
-              ? "Group name"
-              : editor.kind === "template"
-                ? "Template name"
-                : "Amount in pounds"
-          }
-          initialValue={
-            editor.kind === "amount" && editor.row.rule.kind === "fixed"
-              ? moneyInput(editor.row.rule.amountMinor)
-              : ""
-          }
-          decimal={editor.kind === "amount"}
+          title="Save a template"
+          label="Template name"
           busy={busy}
-          error={inputError ?? error}
+          error={error}
           onClose={() => {
             setEditor(null);
-            setInputError(null);
           }}
-          onSave={async (value) => {
-            setInputError(null);
-            if (editor.kind === "group") return budget.addGroup(value);
-            if (editor.kind === "template") return budget.saveTemplate(value);
-            try {
-              return await budget.updateAmount(
-                editor.row.id,
-                parseMoney(value),
-              );
-            } catch (reason) {
-              setInputError(
-                reason instanceof Error
-                  ? reason.message
-                  : "Enter a valid amount.",
-              );
-              return false;
-            }
+          onSave={budget.saveTemplate}
+        />
+      ) : null}
+      {document && editor?.kind === "group" ? (
+        <GroupEditor
+          document={document}
+          group={editor.group}
+          busy={busy}
+          error={error}
+          onSave={budget.saveDraft}
+          onClose={() => setEditor(null)}
+          onDelete={() => {
+            if (editor.group)
+              openEditor({
+                kind: "delete",
+                target: {
+                  kind: "group",
+                  id: editor.group.id,
+                  label: editor.group.title,
+                },
+              });
           }}
         />
+      ) : null}
+      {document && editor?.kind === "row" ? (
+        <RowEditor
+          document={document}
+          row={editor.row}
+          groupId={editor.groupId}
+          busy={busy}
+          error={error}
+          onSave={budget.saveDraft}
+          onClose={() => setEditor(null)}
+          onDelete={() => {
+            if (editor.row)
+              openEditor({
+                kind: "delete",
+                target: {
+                  kind: "row",
+                  id: editor.row.id,
+                  label: editor.row.label,
+                },
+              });
+          }}
+        />
+      ) : null}
+      {document && editor?.kind === "delete" ? (
+        <DeleteEditor
+          document={document}
+          target={editor.target}
+          busy={busy}
+          error={error}
+          onSave={budget.saveDraft}
+          onClose={() => setEditor(null)}
+        />
+      ) : null}
+      {document && editor?.kind === "arrange" ? (
+        <ArrangeEditor
+          document={document}
+          busy={busy}
+          error={error}
+          onSave={budget.saveDraft}
+          onClose={() => setEditor(null)}
+        />
+      ) : null}
+      {document && editor?.kind === "lock" ? (
+        <EditorSheet
+          title={document.month.isLocked ? "Unlock month" : "Lock month"}
+          busy={busy}
+          onClose={() => setEditor(null)}
+        >
+          <Note>
+            {document.month.isLocked
+              ? "Unlock this month to edit its rows, groups and rules again."
+              : "Lock this month to prevent accidental edits. You can still copy it or save a template, and unlock it whenever you need to."}
+          </Note>
+          {error ? <Note>{error}</Note> : null}
+          <Action
+            label={document.month.isLocked ? "Unlock month" : "Lock month"}
+            prominent
+            disabled={busy}
+            onPress={() => {
+              void budget.setLocked(!document.month.isLocked).then((saved) => {
+                if (saved) setEditor(null);
+              });
+            }}
+          />
+        </EditorSheet>
       ) : null}
       {isMonthPickerOpen ? (
         <MonthPickerSheet
@@ -357,11 +477,6 @@ export default function BudgetScreen() {
       ) : null}
     </Screen>
   );
-}
-
-function moneyInput(value: number) {
-  const magnitude = Math.abs(value);
-  return `${value < 0 ? "-" : ""}${Math.trunc(magnitude / 100)}.${String(magnitude % 100).padStart(2, "0")}`;
 }
 
 function BudgetAmount({

@@ -236,6 +236,36 @@ export function createBrowserRepository(
       write(snapshot);
       return saved;
     },
+    async setMonthLocked(id, revision, locked) {
+      assertId(id);
+      if (
+        !Number.isSafeInteger(revision) ||
+        revision < 1 ||
+        revision >= Number.MAX_SAFE_INTEGER ||
+        typeof locked !== "boolean"
+      )
+        throw new BudgetStorageError(
+          "INVALID_DATA",
+          "Invalid month lock request.",
+        );
+      const snapshot = read();
+      const saved = snapshot.months.find((item) => item.month.id === id);
+      if (!saved)
+        throw new BudgetStorageError(
+          "NOT_FOUND",
+          "This month no longer exists.",
+        );
+      if (saved.month.revision !== revision)
+        throw new BudgetStorageError(
+          "CONFLICT",
+          "This month has changed. Reload it before changing its lock.",
+        );
+      saved.month.isLocked = locked;
+      saved.month.revision += 1;
+      saved.month.updatedAt = new Date().toISOString();
+      write(snapshot);
+      return sortDocument(saved);
+    },
     async listTemplates() {
       return read().templates.sort(
         (a, b) =>

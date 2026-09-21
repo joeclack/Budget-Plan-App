@@ -21,6 +21,40 @@ class MemoryStorage implements BrowserStorage {
   }
 }
 
+test("browser locks require current revisions, survive reload and preserve data on failure", async () => {
+  const storage = new MemoryStorage();
+  const repository = createBrowserRepository(storage);
+  const initial = await repository.saveMonth(document());
+  const locked = await repository.setMonthLocked(
+    initial.month.id,
+    initial.month.revision,
+    true,
+  );
+  await assert.rejects(repository.saveMonth(initial), /locked/);
+  await assert.rejects(
+    repository.setMonthLocked(initial.month.id, initial.month.revision, false),
+    /changed/,
+  );
+  storage.failWrites = true;
+  await assert.rejects(
+    repository.setMonthLocked(locked.month.id, locked.month.revision, false),
+    /quota/,
+  );
+  storage.failWrites = false;
+  const reopened = createBrowserRepository(storage);
+  assert.equal(
+    (await reopened.loadMonth(initial.month.id))!.month.isLocked,
+    true,
+  );
+  const unlocked = await reopened.setMonthLocked(
+    locked.month.id,
+    locked.month.revision,
+    false,
+  );
+  assert.equal(unlocked.month.isLocked, false);
+  assert.deepEqual(unlocked.rows, initial.rows);
+});
+
 function document(id = "september", month = 9): BudgetDocument {
   return {
     month: {

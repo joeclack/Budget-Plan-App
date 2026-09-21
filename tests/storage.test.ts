@@ -128,6 +128,41 @@ async function setup(t: TestContext, migrate = true) {
 const hasCode = (code: string) => (error: unknown) =>
   error instanceof BudgetStorageError && error.code === code;
 
+test("explicit lock and unlock persist, preserve contents and reject stale writers", async (t) => {
+  const { repository, open } = await setup(t);
+  const initial = await repository.saveMonth(fixture());
+  const locked = await repository.setMonthLocked(
+    initial.month.id,
+    initial.month.revision,
+    true,
+  );
+  assert.equal(locked.month.isLocked, true);
+  assert.deepEqual(locked.rows, initial.rows);
+  assert.deepEqual(locked.groups, initial.groups);
+  await assert.rejects(repository.saveMonth(initial), hasCode("LOCKED"));
+  await assert.rejects(
+    repository.setMonthLocked(initial.month.id, initial.month.revision, false),
+    hasCode("CONFLICT"),
+  );
+  const reopened = createBudgetRepository(open());
+  assert.equal(
+    (await reopened.loadMonth(initial.month.id))!.month.isLocked,
+    true,
+  );
+  const unlocked = await reopened.setMonthLocked(
+    locked.month.id,
+    locked.month.revision,
+    false,
+  );
+  assert.equal(unlocked.month.isLocked, false);
+  assert.deepEqual(unlocked.rows, initial.rows);
+  await assert.rejects(repository.saveMonth(initial), hasCode("CONFLICT"));
+  assert.equal(
+    (await repository.saveMonth(unlocked)).month.revision,
+    unlocked.month.revision + 1,
+  );
+});
+
 test("a budget reopens from disk, recalculates and retains selection without reseeding", async (t) => {
   const { db, open, repository } = await setup(t);
   const original = fixture();
