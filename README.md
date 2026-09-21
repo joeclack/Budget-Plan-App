@@ -25,7 +25,7 @@ The SQLite schema is initialized through `SQLiteProvider` and versioned with `PR
 The Budget tab reads saved months and derives its figures from their rules. A new installation starts empty, and legacy generated example months are removed without changing personal months.
 
 - Tap any row to edit its name, notes, group and amount rule. Choose a fixed amount, percentage of another row/group, group total or custom arithmetic calculation.
-- Give allocation rows an optional payment day from 1 to 31. The budget shows the effective date on each row and lists today's and future payments in date order; a day beyond the end of a short month uses that month's final day.
+- Give allocation rows an optional payment day from 1 to 31. The budget shows the effective date on each row and lists the next three payments, including anything due today, in date order; a day beyond the end of a short month uses that month's final day.
 - Use Add row and Edit group to build income, spending and savings groups. Each editor previews the new totals and connected amounts before saving; Close discards the draft.
 - Use Arrange to reorder groups and rows, or choose another group in a row's editor to move it. References follow the row's identity when it moves or is renamed.
 - Delete from the row/group editor. The confirmation previews the effect; deletion is blocked if surviving rules depend on the removed items.

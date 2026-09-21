@@ -4,6 +4,7 @@ import {
   evaluateBudget,
   paymentDate,
   scheduledPayments,
+  upcomingPayments,
 } from "../src/domain/budget";
 import { calculatePay, validatePayProfile } from "../src/domain/pay";
 import type { PayProfile, PensionMethod } from "../src/domain/pay";
@@ -115,4 +116,28 @@ test("scheduled payments sort by effective date and clamp short months", () => {
     ],
   );
   assert.equal(paymentDate(2028, 2, 31).getDate(), 29);
+});
+
+test("the upcoming list contains only the next three non-past payments", () => {
+  const document = createBudgetFixture(2026, 9);
+  const rows = new Map(document.rows.map((row) => [row.label, row]));
+  rows.get("Salary")!.dueDay = 2;
+  rows.get("Car finance")!.dueDay = 3;
+  rows.get("Broadband")!.dueDay = 4;
+  rows.get("Mobile")!.dueDay = 5;
+  rows.get("Memberships")!.dueDay = 6;
+  rows.get("Rent")!.dueDay = 30;
+  const payments = upcomingPayments(
+    document,
+    evaluateBudget(document).rows,
+    new Date(2026, 8, 3),
+  );
+  assert.deepEqual(
+    payments.map((payment) => payment.row.label),
+    ["Car finance", "Broadband", "Mobile"],
+  );
+  assert.deepEqual(
+    payments.map((payment) => payment.status),
+    ["today", "upcoming", "upcoming"],
+  );
 });

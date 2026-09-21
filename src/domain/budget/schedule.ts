@@ -48,6 +48,19 @@ export function scheduledPayments(
     );
 }
 
+export function upcomingPayments(
+  document: BudgetDocument,
+  amounts: Record<string, AmountResult>,
+  now = new Date(),
+  limit = 3,
+) {
+  if (!Number.isInteger(limit) || limit < 0)
+    throw new Error("Upcoming payment limit must be a non-negative integer.");
+  return scheduledPayments(document, amounts, now)
+    .filter((payment) => payment.status !== "past")
+    .slice(0, limit);
+}
+
 export function dueDateLabel(year: number, month: number, dueDay: number) {
   return new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
