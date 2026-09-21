@@ -2,6 +2,7 @@ import { SymbolView } from "expo-symbols";
 import { useState } from "react";
 import {
   ActivityIndicator,
+  ActionSheetIOS,
   Platform,
   Pressable,
   StyleSheet,
@@ -95,6 +96,43 @@ export default function BudgetScreen() {
   function openEditor(next: Editor) {
     budget.clearError();
     setEditor(next);
+  }
+
+  function openPlanActions() {
+    if (!document) {
+      return;
+    }
+
+    if (Platform.OS !== "ios") {
+      setIsPlanMenuOpen((open) => !open);
+      return;
+    }
+
+    const lockLabel = document.month.isLocked ? "Unlock month" : "Lock month";
+    const options = ["Add group", "Arrange", lockLabel, "Cancel"];
+    const disabledButtonIndices = [
+      ...(document.month.isLocked ? [0] : []),
+      ...(document.month.isLocked || !document.groups.length ? [1] : []),
+    ];
+
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        cancelButtonIndex: 3,
+        disabledButtonIndices,
+        options,
+        title: "Your plan",
+        tintColor: colors.accent,
+      },
+      (buttonIndex) => {
+        if (buttonIndex === 0) {
+          openEditor({ kind: "group" });
+        } else if (buttonIndex === 1) {
+          openEditor({ kind: "arrange" });
+        } else if (buttonIndex === 2) {
+          openEditor({ kind: "lock" });
+        }
+      },
+    );
   }
 
   return (
@@ -230,13 +268,17 @@ export default function BudgetScreen() {
               Your plan
             </Text>
             <GlassButton
-              accessibilityLabel={
-                isPlanMenuOpen ? "Close plan actions" : "Open plan actions"
-              }
+              accessibilityLabel="Open plan actions"
               compact
               disabled={busy}
-              label={isPlanMenuOpen ? "Actions ▴" : "Actions ▾"}
-              onPress={() => setIsPlanMenuOpen((open) => !open)}
+              label={
+                Platform.OS === "ios"
+                  ? "Actions"
+                  : isPlanMenuOpen
+                    ? "Actions ▴"
+                    : "Actions ▾"
+              }
+              onPress={openPlanActions}
             />
           </View>
           {isPlanMenuOpen ? (
