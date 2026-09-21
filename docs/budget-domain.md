@@ -10,6 +10,8 @@ The UI loads and saves through `BudgetRepository`. SQLite is the native source o
 
 Templates store a versioned detached structure. Copying a month or applying a template generates a new month ID and new group/row IDs and remaps every reference, including references inside nested arithmetic. There are no links to the source document. Copies start unlocked with revision zero.
 
+Template management uses the template's update timestamp as a conflict token. Renaming keeps the saved structure. Updating from the current month replaces the structure with newly remapped group and row IDs. Deleting a template does not affect budget months that were previously created from it.
+
 ## Money and calculations
 
 - Fixed amounts are safe integer pence. Decimal input is parsed as text, with at most two places. Blank and invalid input are rejected; explicit zero is valid.

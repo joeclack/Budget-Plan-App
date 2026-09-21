@@ -138,6 +138,30 @@ export function createTemplate(
   return template;
 }
 
+export function renameTemplate(
+  template: BudgetTemplate,
+  name: string,
+): BudgetTemplate {
+  const renamed = { ...clone(template), name: name.trim() };
+  assertValidTemplate(renamed);
+  return renamed;
+}
+
+export function replaceTemplateStructure(
+  template: BudgetTemplate,
+  source: BudgetDocument,
+): BudgetTemplate {
+  assertValidTemplate(template);
+  assertValidBudget(source);
+  const copied = remapDocument(source, templateDocument(template));
+  const updated: BudgetTemplate = {
+    ...clone(template),
+    structure: { version: 1, groups: copied.groups, rows: copied.rows },
+  };
+  assertValidTemplate(updated);
+  return updated;
+}
+
 export function instantiateTemplate(
   template: BudgetTemplate,
   year: number,

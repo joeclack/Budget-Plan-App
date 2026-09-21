@@ -5,7 +5,10 @@ import {
   createBlankMonth,
   createTemplate,
   instantiateTemplate,
+  renameTemplate,
+  replaceTemplateStructure,
 } from "../../domain/budget";
+import type { BudgetTemplate } from "../../domain/budget";
 import type { BudgetDocument } from "../../domain/budget/types";
 import { initialiseBudget, type BudgetState } from "./initialise";
 import { subscribeBudgetChanges } from "./changes";
@@ -157,6 +160,42 @@ export function useBudget() {
           templates: [...state.templates, saved].sort((a, b) =>
             a.name.localeCompare(b.name),
           ),
+        };
+      }),
+    renameTemplate: (template: BudgetTemplate, name: string) =>
+      run(async () => {
+        if (!state) throw new Error("Open the template manager again.");
+        const saved = await repository.saveTemplate(
+          renameTemplate(template, name),
+        );
+        return {
+          ...state,
+          templates: [
+            ...state.templates.filter((item) => item.id !== saved.id),
+            saved,
+          ].sort((a, b) => a.name.localeCompare(b.name)),
+        };
+      }),
+    replaceTemplate: (template: BudgetTemplate) =>
+      run(async () => {
+        if (!state?.document) throw new Error("Open a saved month first.");
+        const saved = await repository.saveTemplate(
+          replaceTemplateStructure(template, state.document),
+        );
+        return {
+          ...state,
+          templates: state.templates.map((item) =>
+            item.id === saved.id ? saved : item,
+          ),
+        };
+      }),
+    deleteTemplate: (template: BudgetTemplate) =>
+      run(async () => {
+        if (!state) throw new Error("Open the template manager again.");
+        await repository.deleteTemplate(template.id, template.updatedAt);
+        return {
+          ...state,
+          templates: state.templates.filter((item) => item.id !== template.id),
         };
       }),
   };

@@ -21,6 +21,8 @@ import {
   renameRow,
   reorderGroups,
   reorderRows,
+  renameTemplate,
+  replaceTemplateStructure,
   setRowRule,
   type AmountResult,
   type BudgetDocument,
@@ -457,6 +459,36 @@ test("templates reject external references and unsupported schemas", () => {
     /version/,
   );
   assert.throws(() => createTemplate(sample(), "  "), /non-empty/);
+});
+
+test("templates can be renamed or replaced without linking back to a month", () => {
+  const template = createTemplate(sample(), " Regular month ");
+  const renamed = renameTemplate(template, " Updated month ");
+  assert.equal(renamed.name, "Updated month");
+  assert.equal(template.name, "Regular month");
+  assert.throws(() => renameTemplate(template, "  "), /non-empty/);
+
+  const source = sample();
+  source.rows[0].rule = fixed(450000);
+  source.rows[0].dueDay = 28;
+  const updated = replaceTemplateStructure(renamed, source);
+  assert.equal(updated.id, template.id);
+  assert.equal(updated.createdAt, template.createdAt);
+  assert.equal(updated.updatedAt, template.updatedAt);
+  assert.ok(
+    updated.structure.groups.every((group) => group.monthId === template.id),
+  );
+  assert.equal(
+    value(evaluateBudget(instantiateTemplate(updated, 2027, 2)).income),
+    450000,
+  );
+  assert.equal(
+    instantiateTemplate(updated, 2027, 2).rows.find(
+      (row) => row.label === "Salary",
+    )?.dueDay,
+    28,
+  );
+  assert.notEqual(updated.structure.rows[0].id, source.rows[0].id);
 });
 
 test("malformed runtime documents are rejected before calculation or persistence", () => {

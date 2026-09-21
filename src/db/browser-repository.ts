@@ -399,6 +399,28 @@ export function createBrowserRepository(
       write(snapshot);
       return saved;
     },
+    async deleteTemplate(id, updatedAt) {
+      assertId(id);
+      if (!Number.isFinite(Date.parse(updatedAt)))
+        throw new BudgetStorageError(
+          "INVALID_DATA",
+          "The template version is invalid.",
+        );
+      const snapshot = read();
+      const existing = snapshot.templates.find((item) => item.id === id);
+      if (!existing)
+        throw new BudgetStorageError(
+          "NOT_FOUND",
+          "This template no longer exists.",
+        );
+      if (existing.updatedAt !== updatedAt)
+        throw new BudgetStorageError(
+          "CONFLICT",
+          "This template has changed. Reload it before deleting it.",
+        );
+      snapshot.templates = snapshot.templates.filter((item) => item.id !== id);
+      write(snapshot);
+    },
     async getPayProfile() {
       return read().payProfile ?? null;
     },

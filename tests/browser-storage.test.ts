@@ -353,4 +353,14 @@ test("template timestamps reject stale writers and advance on rapid consecutive 
     hasCode("CONFLICT"),
   );
   assert.equal((await second.loadTemplate(saved.id))?.name, "Current version");
+  await assert.rejects(
+    second.deleteTemplate(stale.id, stale.updatedAt),
+    hasCode("CONFLICT"),
+  );
+  await second.deleteTemplate(updated.id, updated.updatedAt);
+  assert.deepEqual(await first.listTemplates(), []);
+  await assert.rejects(
+    first.deleteTemplate(updated.id, updated.updatedAt),
+    hasCode("NOT_FOUND"),
+  );
 });
