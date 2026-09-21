@@ -5,6 +5,8 @@ import {
   type BudgetTemplate,
 } from "../domain/budget";
 import { BudgetStorageError, type BudgetRepository } from "./repository";
+import { calculatePay, validatePayProfile } from "../domain/pay";
+import type { PayEstimateSnapshot, PayProfile } from "../domain/pay";
 
 /** Browser preview only. The iPhone app uses its native SQLite repository. */
 export const BROWSER_STORAGE_KEY = "budget-plan-preview-v1";
@@ -19,6 +21,8 @@ type Snapshot = {
   months: BudgetDocument[];
   templates: BudgetTemplate[];
   selectedMonthId: string | null;
+  payProfile?: PayProfile | null;
+  paySnapshots?: PayEstimateSnapshot[];
 };
 
 function invalidStorage(): BudgetStorageError {
@@ -54,6 +58,20 @@ function sortDocument(document: BudgetDocument) {
       compareId(a, b),
   );
   return document;
+}
+
+function assertPaySnapshot(value: PayEstimateSnapshot) {
+  validatePayProfile(value.inputs);
+  const expected = calculatePay(value.inputs, value.calculatedAt);
+  if (
+    typeof value.id !== "string" ||
+    !value.id.trim() ||
+    typeof value.budgetRowId !== "string" ||
+    !value.budgetRowId.trim() ||
+    value.rulesetVersion !== expected.rulesetVersion ||
+    JSON.stringify(value.result) !== JSON.stringify(expected)
+  )
+    throw invalidStorage();
 }
 
 function validateSnapshot(value: unknown): asserts value is Snapshot {
@@ -102,6 +120,16 @@ function validateSnapshot(value: unknown): asserts value is Snapshot {
       assertValidTemplate(template);
       requireUnique(templateIds, template.id);
     }
+    if (snapshot.payProfile) validatePayProfile(snapshot.payProfile);
+    if (snapshot.paySnapshots !== undefined) {
+      if (!Array.isArray(snapshot.paySnapshots)) throw invalidStorage();
+      const snapshotIds = new Set<string>();
+      for (const paySnapshot of snapshot.paySnapshots) {
+        assertPaySnapshot(paySnapshot);
+        requireUnique(snapshotIds, paySnapshot.id);
+        if (!rowIds.has(paySnapshot.budgetRowId)) throw invalidStorage();
+      }
+    }
   } catch {
     throw invalidStorage();
   }
@@ -120,7 +148,14 @@ export function createBrowserRepository(
   function read(): Snapshot {
     const raw = storage.getItem(BROWSER_STORAGE_KEY);
     if (raw === null) {
-      return { version: 1, months: [], templates: [], selectedMonthId: null };
+      return {
+        version: 1,
+        months: [],
+        templates: [],
+        selectedMonthId: null,
+        payProfile: null,
+        paySnapshots: [],
+      };
     }
     let snapshot: unknown;
     try {
@@ -138,6 +173,27 @@ export function createBrowserRepository(
   }
 
   return {
+    async removeDemoData() {
+      const snapshot = read();
+      const demoIds = new Set(
+        snapshot.months
+          .filter((item) => item.month.name === "Example budget")
+          .map((item) => item.month.id),
+      );
+      if (!demoIds.size) return;
+      snapshot.months = snapshot.months.filter(
+        (item) => !demoIds.has(item.month.id),
+      );
+      const retainedRowIds = new Set(
+        snapshot.months.flatMap((item) => item.rows.map((row) => row.id)),
+      );
+      snapshot.paySnapshots = (snapshot.paySnapshots ?? []).filter((item) =>
+        retainedRowIds.has(item.budgetRowId),
+      );
+      if (snapshot.selectedMonthId && demoIds.has(snapshot.selectedMonthId))
+        snapshot.selectedMonthId = null;
+      write(snapshot);
+    },
     async listMonths() {
       return read()
         .months.map((document) => document.month)
@@ -172,8 +228,18 @@ export function createBrowserRepository(
       );
       return document ? sortDocument(document) : null;
     },
-    async saveMonth(document) {
+    async saveMonth(document, inputSnapshot) {
       assertValidBudget(document);
+      if (inputSnapshot) {
+        try {
+          assertPaySnapshot(inputSnapshot);
+        } catch {
+          throw new BudgetStorageError(
+            "INVALID_DATA",
+            "Invalid pay estimate snapshot.",
+          );
+        }
+      }
       const snapshot = read();
       const existing = snapshot.months.find(
         (item) => item.month.id === document.month.id,
@@ -230,9 +296,38 @@ export function createBrowserRepository(
         );
       }
       const saved = sortDocument(clone(document));
+      if (
+        inputSnapshot &&
+        !saved.rows.some((row) => row.id === inputSnapshot.budgetRowId)
+      )
+        throw new BudgetStorageError(
+          "INVALID_DATA",
+          "The salary row does not belong to this month.",
+        );
       saved.month.revision += 1;
       saved.month.updatedAt = new Date().toISOString();
       snapshot.months = [...otherMonths, saved];
+      const retainedRowIds = new Set(
+        snapshot.months.flatMap((item) => item.rows.map((row) => row.id)),
+      );
+      snapshot.paySnapshots = (snapshot.paySnapshots ?? []).filter((item) =>
+        retainedRowIds.has(item.budgetRowId),
+      );
+      if (inputSnapshot)
+        if (
+          (snapshot.paySnapshots ?? []).some(
+            (item) => item.id === inputSnapshot.id,
+          )
+        )
+          throw new BudgetStorageError(
+            "INVALID_DATA",
+            "A pay estimate snapshot with this identifier already exists.",
+          );
+      if (inputSnapshot)
+        snapshot.paySnapshots = [
+          ...(snapshot.paySnapshots ?? []),
+          clone(inputSnapshot),
+        ];
       write(snapshot);
       return saved;
     },
@@ -301,6 +396,17 @@ export function createBrowserRepository(
         ...snapshot.templates.filter((item) => item.id !== saved.id),
         saved,
       ];
+      write(snapshot);
+      return saved;
+    },
+    async getPayProfile() {
+      return read().payProfile ?? null;
+    },
+    async savePayProfile(input) {
+      validatePayProfile(input);
+      const snapshot = read();
+      const saved = { ...clone(input), updatedAt: new Date().toISOString() };
+      snapshot.payProfile = saved;
       write(snapshot);
       return saved;
     },

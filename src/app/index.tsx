@@ -15,7 +15,12 @@ import { Money } from "@/components/money";
 import { MonthPickerSheet } from "@/components/month-picker-sheet";
 import { Screen } from "@/components/screen";
 import { SectionCard } from "@/components/section-card";
-import { describeRule, evaluateBudget } from "@/domain/budget";
+import {
+  describeRule,
+  dueDateLabel,
+  evaluateBudget,
+  scheduledPayments,
+} from "@/domain/budget";
 import type {
   AmountResult,
   BudgetRow,
@@ -81,6 +86,12 @@ export default function BudgetScreen() {
 
   const { document, period } = state;
   const evaluation = document ? evaluateBudget(document) : null;
+  const payments =
+    document && evaluation
+      ? scheduledPayments(document, evaluation.rows).filter(
+          (payment) => payment.status !== "past",
+        )
+      : [];
   const monthLabel = monthName(period.year, period.month);
   function openEditor(next: Editor) {
     budget.clearError();
@@ -156,6 +167,64 @@ export default function BudgetScreen() {
               <SummaryItem label="Allocated" result={evaluation.allocated} />
             </View>
           </View>
+
+          <View style={styles.sectionHeading}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Upcoming
+            </Text>
+          </View>
+          {payments.length ? (
+            <View
+              style={[
+                styles.upcoming,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
+            >
+              {payments.map((payment, index) => (
+                <View
+                  key={payment.row.id}
+                  style={[
+                    styles.upcomingRow,
+                    index > 0 && {
+                      borderTopColor: colors.separator,
+                      borderTopWidth: StyleSheet.hairlineWidth,
+                    },
+                  ]}
+                >
+                  <View style={styles.rowCopy}>
+                    <Text style={[styles.rowLabel, { color: colors.text }]}>
+                      {payment.row.label}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.rowDetail,
+                        { color: colors.secondaryText },
+                      ]}
+                    >
+                      {payment.status === "today"
+                        ? "Today"
+                        : dueDateLabel(
+                            document.month.year,
+                            document.month.month,
+                            payment.row.dueDay!,
+                          )}{" "}
+                      ·{" "}
+                      {payment.classification === "income"
+                        ? "income"
+                        : payment.classification === "saving"
+                          ? "saving"
+                          : "payment"}
+                    </Text>
+                  </View>
+                  <BudgetAmount result={payment.amount} />
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={{ color: colors.secondaryText }}>
+              Add payment days to rows to see what is coming up.
+            </Text>
+          )}
 
           <View style={styles.sectionHeading}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
@@ -261,6 +330,9 @@ export default function BudgetScreen() {
                             : describeRule(row.rule, document)}
                           {row.allocationRole === "informational"
                             ? " · display only"
+                            : ""}
+                          {row.dueDay
+                            ? ` · ${dueDateLabel(document.month.year, document.month.month, row.dueDay)}`
                             : ""}
                         </Text>
                       </View>
@@ -573,4 +645,15 @@ const styles = StyleSheet.create({
   emptyGroup: { ...typography.body, paddingVertical: spacing.md },
   emptyMonth: { gap: spacing.md },
   message: { padding: spacing.md, borderRadius: radius.md, gap: spacing.sm },
+  upcoming: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+  },
+  upcomingRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    minHeight: 56,
+    paddingVertical: spacing.sm,
+  },
 });

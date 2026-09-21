@@ -154,6 +154,8 @@ export function assertBudgetShape(
       fail("Row belongs to a missing group.");
     string(row.label, "Row label");
     string(row.notes, "Row notes", true);
+    if (row.dueDay !== undefined && row.dueDay !== null)
+      integer(row.dueDay, "Payment day", 1, 31);
     if (
       row.allocationRole !== "allocation" &&
       row.allocationRole !== "informational"

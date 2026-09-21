@@ -1,54 +1,70 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createBrowserRepository } from "../src/db/browser-repository";
-import { copyBudget, evaluateBudget, setRowRule } from "../src/domain/budget";
-import { createExampleBudget } from "../src/data/example-budget";
+import { copyBudget, setRowRule } from "../src/domain/budget";
 import { initialiseBudget } from "../src/features/budget/initialise";
+import { createBudgetFixture } from "./budget-fixture";
 
-test("example allocations and subscriptions total reconcile without double counting", () => {
-  const result = evaluateBudget(createExampleBudget(2026, 9));
-  assert.deepEqual(result.income, { ok: true, amountMinor: 342000 });
-  assert.deepEqual(result.allocated, { ok: true, amountMinor: 287500 });
-  assert.deepEqual(result.leftToPlan, { ok: true, amountMinor: 54500 });
-});
-
-test("concurrent initialisation seeds once and later reopens edits and selected copies", async () => {
+function memory() {
   const data = new Map<string, string>();
-  const storage = {
-    getItem: (key: string) => data.get(key) ?? null,
-    setItem: (key: string, value: string) => {
-      data.set(key, value);
+  return {
+    storage: {
+      getItem: (key: string) => data.get(key) ?? null,
+      setItem: (key: string, value: string) => void data.set(key, value),
     },
   };
+}
+
+test("a fresh installation opens the current month without creating demo data", async () => {
+  const { storage } = memory();
   const repository = createBrowserRepository(storage);
   const [a, b] = await Promise.all([
     initialiseBudget(repository),
     initialiseBudget(repository),
   ]);
-  assert.equal(a.document?.month.id, b.document?.month.id);
-  assert.equal((await repository.listMonths()).length, 1);
-  assert.ok(a.document);
-  const salary = a.document.rows.find((row) => row.label === "Salary")!;
-  const saved = await repository.saveMonth(
-    setRowRule(a.document, salary.id, { kind: "fixed", amountMinor: 400000 }),
+  assert.equal(a.document, null);
+  assert.equal(b.document, null);
+  assert.deepEqual(a.months, []);
+  assert.equal((await repository.listMonths()).length, 0);
+  const now = new Date();
+  assert.deepEqual(a.period, {
+    year: now.getFullYear(),
+    month: now.getMonth() + 1,
+  });
+});
+
+test("legacy generated demo months are removed while personal months reopen", async () => {
+  const { storage } = memory();
+  const repository = createBrowserRepository(storage);
+  const demo = createBudgetFixture();
+  demo.month.name = "Example budget";
+  await repository.saveMonth(demo);
+  const personal = await repository.saveMonth(
+    copyBudget(createBudgetFixture(), 2026, 10),
   );
-  const nextYear =
-    saved.month.month === 12 ? saved.month.year + 1 : saved.month.year;
-  const nextMonth = saved.month.month === 12 ? 1 : saved.month.month + 1;
-  const copied = await repository.saveMonth(
-    copyBudget(saved, nextYear, nextMonth),
+  await repository.setSelectedMonthId(personal.month.id);
+  const opened = await initialiseBudget(repository);
+  assert.equal(opened.months.length, 1);
+  assert.equal(opened.document?.month.id, personal.month.id);
+  assert.equal(await repository.loadMonth(demo.month.id), null);
+});
+
+test("saved edits and selected copies reopen without being reseeded", async () => {
+  const { storage } = memory();
+  const repository = createBrowserRepository(storage);
+  const original = await repository.saveMonth(createBudgetFixture());
+  const salary = original.rows.find((row) => row.label === "Salary")!;
+  const edited = await repository.saveMonth(
+    setRowRule(original, salary.id, { kind: "fixed", amountMinor: 400000 }),
   );
+  const copied = await repository.saveMonth(copyBudget(edited, 2026, 10));
   await repository.setSelectedMonthId(copied.month.id);
   const reopened = await initialiseBudget(createBrowserRepository(storage));
   assert.equal(reopened.document?.month.id, copied.month.id);
   assert.equal(reopened.months.length, 2);
-  assert.deepEqual(evaluateBudget(reopened.document!).leftToPlan, {
-    ok: true,
-    amountMinor: 106700,
-  });
 });
 
-test("corrupt saved state is reported without being replaced with an example", async () => {
+test("corrupt saved state is reported without being replaced", async () => {
   let writes = 0;
   const repository = createBrowserRepository({
     getItem: () => "{broken",

@@ -249,6 +249,7 @@ export function addRow(
       groupId,
       label: label.trim(),
       notes: "",
+      dueDay: null,
       rule: clone(rule),
       allocationRole,
       sortOrder:

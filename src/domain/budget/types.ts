@@ -41,6 +41,8 @@ export type BudgetRow = {
   groupId: string;
   label: string;
   notes: string;
+  /** Day of this budget month when the payment is expected. */
+  dueDay?: number | null;
   rule: AmountRule;
   allocationRole: AllocationRole;
   sortOrder: number;

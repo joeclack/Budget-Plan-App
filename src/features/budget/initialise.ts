@@ -4,7 +4,6 @@ import type {
   BudgetMonth,
   BudgetTemplate,
 } from "../../domain/budget/types";
-import { createExampleBudget } from "../../data/example-budget";
 
 export type BudgetState = {
   document: BudgetDocument | null;
@@ -15,7 +14,7 @@ export type BudgetState = {
 
 const pending = new WeakMap<BudgetRepository, Promise<BudgetState>>();
 
-/** Concurrent mounts share one first-run seed; reopening never replaces saved data. */
+/** Concurrent mounts share one open operation. A new installation starts empty. */
 export function initialiseBudget(
   repository: BudgetRepository,
 ): Promise<BudgetState> {
@@ -27,36 +26,20 @@ export function initialiseBudget(
 }
 
 async function openBudget(repository: BudgetRepository): Promise<BudgetState> {
+  await repository.removeDemoData();
   const months = await repository.listMonths();
   const selectedId = await repository.getSelectedMonthId();
   let document = selectedId ? await repository.loadMonth(selectedId) : null;
   if (!document && months.length)
     document = await repository.loadMonth(months[0].id);
-  if (!document) {
-    const now = new Date();
-    const example = createExampleBudget(now.getFullYear(), now.getMonth() + 1);
-    try {
-      document = await repository.saveMonth(example);
-    } catch (error) {
-      // Another mounted connection may have completed first-run creation.
-      if (
-        !(error instanceof Error) ||
-        !("code" in error) ||
-        error.code !== "DUPLICATE_MONTH"
-      )
-        throw error;
-      document = await repository.findMonth(
-        example.month.year,
-        example.month.month,
-      );
-      if (!document) throw error;
-    }
-  }
-  await repository.setSelectedMonthId(document.month.id);
+  const now = new Date();
+  if (document) await repository.setSelectedMonthId(document.month.id);
   return {
     document,
-    months: await repository.listMonths(),
+    months,
     templates: await repository.listTemplates(),
-    period: { year: document.month.year, month: document.month.month },
+    period: document
+      ? { year: document.month.year, month: document.month.month }
+      : { year: now.getFullYear(), month: now.getMonth() + 1 },
   };
 }

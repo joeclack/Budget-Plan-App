@@ -126,6 +126,7 @@ export function RowEditor(
   const choices = referenceChoices(props.document);
   const [label, setLabel] = useState(row?.label ?? "");
   const [notes, setNotes] = useState(row?.notes ?? "");
+  const [dueDay, setDueDay] = useState(row?.dueDay ? String(row.dueDay) : "");
   const [groupId, setGroupId] = useState(row?.groupId ?? props.groupId);
   const [kind, setKind] = useState<AmountRule["kind"]>(
     row?.rule.kind ?? "fixed",
@@ -174,7 +175,14 @@ export function RowEditor(
     } else rule = { kind, expression: parseExpression(expression, choices) };
     return editRow(
       props.document,
-      { label, notes, groupId, rule, allocationRole: role },
+      {
+        label,
+        notes,
+        dueDay: dueDay.trim() === "" ? null : parseDueDay(dueDay),
+        groupId,
+        rule,
+        allocationRole: role,
+      },
       row?.id,
     );
   });
@@ -325,6 +333,16 @@ export function RowEditor(
         group or monthly totals.
       </Note>
       <Field
+        label="Payment day (optional)"
+        value={dueDay}
+        onChange={setDueDay}
+        numeric
+        disabled={props.busy}
+      />
+      <Note>
+        Use a day from 1 to 31. In a shorter month it appears on the last day.
+      </Note>
+      <Field
         label="Notes (optional)"
         value={notes}
         onChange={setNotes}
@@ -351,6 +369,14 @@ export function RowEditor(
       ) : null}
     </EditorSheet>
   );
+}
+
+function parseDueDay(value: string) {
+  if (!/^\d+$/.test(value.trim()))
+    throw new Error("Enter a payment day from 1 to 31.");
+  const day = Number(value);
+  if (day < 1 || day > 31) throw new Error("Enter a payment day from 1 to 31.");
+  return day;
 }
 
 export function DeleteEditor(

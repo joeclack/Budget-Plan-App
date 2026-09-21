@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createExampleBudget } from "../src/data/example-budget";
+import { createBudgetFixture as createExampleBudget } from "./budget-fixture";
 import {
   createTemplate,
   evaluateBudget,
