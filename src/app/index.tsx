@@ -19,7 +19,7 @@ import {
   describeRule,
   dueDateLabel,
   evaluateBudget,
-  scheduledPayments,
+  upcomingPayments,
 } from "@/domain/budget";
 import type {
   AmountResult,
@@ -89,11 +89,7 @@ export default function BudgetScreen() {
   const { document, period } = state;
   const evaluation = document ? evaluateBudget(document) : null;
   const payments =
-    document && evaluation
-      ? scheduledPayments(document, evaluation.rows).filter(
-          (payment) => payment.status !== "past",
-        )
-      : [];
+    document && evaluation ? upcomingPayments(document, evaluation.rows) : [];
   const monthLabel = monthName(period.year, period.month);
   function openEditor(next: Editor) {
     budget.clearError();
