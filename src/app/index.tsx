@@ -277,6 +277,7 @@ export default function BudgetScreen() {
             .map((group) => (
               <SectionCard
                 key={group.id}
+                emphasizedHeader
                 title={group.title}
                 subtitle={
                   {
@@ -286,7 +287,10 @@ export default function BudgetScreen() {
                   }[group.classification]
                 }
                 totalContent={
-                  <BudgetAmount result={evaluation.groups[group.id]} />
+                  <BudgetAmount
+                    result={evaluation.groups[group.id]}
+                    variant="strong"
+                  />
                 }
               >
                 {document.rows
@@ -576,7 +580,7 @@ function BudgetAmount({
   variant = "body",
 }: {
   result: AmountResult | undefined;
-  variant?: "body" | "hero" | "heroSmall";
+  variant?: "body" | "strong" | "hero" | "heroSmall";
 }) {
   const colors = useAppColors();
   return result?.ok ? (
@@ -586,7 +590,10 @@ function BudgetAmount({
       style={[
         styles.rowDetail,
         {
-          color: variant === "body" ? colors.text : colors.heroText,
+          color:
+            variant === "hero" || variant === "heroSmall"
+              ? colors.heroText
+              : colors.text,
           maxWidth: 220,
         },
       ]}

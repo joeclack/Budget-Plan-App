@@ -6,7 +6,7 @@ import { typography, useAppColors } from "@/theme/tokens";
 
 type MoneyProps = {
   prefix?: string;
-  variant?: "body" | "hero" | "heroSmall";
+  variant?: "body" | "strong" | "hero" | "heroSmall";
 } & (
   { value: number; minorValue?: never } | { value?: never; minorValue: number }
 );
@@ -18,7 +18,7 @@ export function Money({
   variant = "body",
 }: MoneyProps) {
   const colors = useAppColors();
-  const isHero = variant !== "body";
+  const isHero = variant === "hero" || variant === "heroSmall";
   const formatted =
     minorValue !== undefined ? formatMinor(minorValue) : formatGBP(value!);
 
@@ -28,6 +28,7 @@ export function Money({
       style={[
         variant === "hero" && styles.hero,
         variant === "heroSmall" && styles.heroSmall,
+        variant === "strong" && styles.strong,
         variant === "body" && styles.body,
         { color: isHero ? colors.heroText : colors.text },
       ]}
@@ -41,5 +42,6 @@ export function Money({
 const styles = StyleSheet.create({
   hero: typography.display,
   heroSmall: typography.title3,
+  strong: { fontSize: 19, fontWeight: "700", lineHeight: 24 },
   body: typography.headline,
 });
