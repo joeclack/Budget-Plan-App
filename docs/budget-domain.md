@@ -37,3 +37,13 @@ An empty installation receives the example once, using the current calendar mont
 Browser checks exercise editing salary and automatic percentage updates, reload, month copying and independence, template creation/application, persistent group creation, and invalid amount cancellation. Browser persistence is a separate preview adapter; it does not substitute for physical iPhone bridge and keyboard checks.
 
 Versioned reference: [Expo SDK 57 SQLite](https://docs.expo.dev/versions/v57.0.0/sdk/sqlite/).
+
+# Milestone 3 editing workflow
+
+Row and group forms build a separate draft and validate all dependent calculations before allowing Save. Rows can change name, notes, group, rule and allocation role together. Reordering retains IDs. Closing a form discards its draft. Successful saves update the displayed revision immediately; failure to remember the last-opened month cannot turn a committed edit into a stale draft.
+
+Custom calculations support decimal numbers, `+ - * /`, unary signs and parentheses. The reference chooser inserts unique human-readable bracketed names which are resolved to stable row/group IDs on save. No JavaScript is evaluated. Text, token and nesting limits apply. Calculations use the existing exact penny-rounding engine.
+
+Group-total rules initially use the display-only role to avoid counting the referenced money twice. A user can explicitly change that role. Deleting a group also removes its rows; the confirmation lists surviving rules that would break and blocks the deletion until those rules are edited. Safe deletions preview the changed totals.
+
+Lock/unlock is a dedicated repository operation with an expected revision. It changes only lock state, modification time and revision. Ordinary saves cannot unlock a stored locked month, and stale lock operations are rejected. No schema migration is required for this milestone.

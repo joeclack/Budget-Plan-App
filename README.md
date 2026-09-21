@@ -24,10 +24,14 @@ The SQLite schema is initialized through `SQLiteProvider` and versioned with `PR
 
 The Budget tab now reads saved months and derives its figures from their rules. On an empty installation it saves one example budget in the current calendar month. Existing data is never replaced by this seed.
 
-- Tap a fixed amount to edit it. Saving recalculates dependent rows and persists the complete month.
+- Tap any row to edit its name, notes, group and amount rule. Choose a fixed amount, percentage of another row/group, group total or custom arithmetic calculation.
+- Use Add row and Edit group to build income, spending and savings groups. Each editor previews the new totals and connected amounts before saving; Close discards the draft.
+- Use Arrange to reorder groups and rows, or choose another group in a row's editor to move it. References follow the row's identity when it moves or is renamed.
+- Delete from the row/group editor. The confirmation previews the effect; deletion is blocked if surviving rules depend on the removed items.
+- Lock completed months to prevent edits; explicitly unlock them when needed. Copies and saved templates remain available while locked.
 - Choose an unused month from the title picker, then start blank, copy a saved month, or use a template.
 - Add a group or save the current month as a reusable template. Copies and templates have independent IDs and remapped references.
-- Full row/rule editors and rearranging controls are the next milestone. Take-home remains a sample design until Milestone 4.
+- Edits affect only the selected month. Templates are independent snapshots; save a new template to reuse a revised structure. Take-home remains a sample design until Milestone 4.
 
 Native iPhone storage uses `expo-sqlite` in Expo Go, including across app restarts. The web target is a browser preview using a separate localStorage snapshot; browser data does not sync to the phone. Simultaneous browser tabs do not have SQLite's transaction guarantees.
 

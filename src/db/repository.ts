@@ -19,6 +19,11 @@ export interface BudgetRepository {
   loadMonth(id: string): Promise<BudgetDocument | null>;
   findMonth(year: number, month: number): Promise<BudgetDocument | null>;
   saveMonth(document: BudgetDocument): Promise<BudgetDocument>;
+  setMonthLocked(
+    id: string,
+    revision: number,
+    locked: boolean,
+  ): Promise<BudgetDocument>;
   listTemplates(): Promise<BudgetTemplate[]>;
   loadTemplate(id: string): Promise<BudgetTemplate | null>;
   saveTemplate(template: BudgetTemplate): Promise<BudgetTemplate>;
@@ -346,6 +351,46 @@ export function createBudgetRepository(db: SqlDatabase): BudgetRepository {
         }
         await assertForeignKeys(connection);
         return (await readMonth(connection, month.id))!;
+      });
+    },
+    async setMonthLocked(id, revision, locked) {
+      assertId(id);
+      if (
+        !Number.isSafeInteger(revision) ||
+        revision < 1 ||
+        revision >= Number.MAX_SAFE_INTEGER ||
+        typeof locked !== "boolean"
+      )
+        throw new BudgetStorageError(
+          "INVALID_DATA",
+          "Invalid month lock request.",
+        );
+      return transaction(async (connection) => {
+        const existing = await readMonth(connection, id);
+        if (!existing)
+          throw new BudgetStorageError(
+            "NOT_FOUND",
+            "This month no longer exists.",
+          );
+        if (existing.month.revision !== revision)
+          throw new BudgetStorageError(
+            "CONFLICT",
+            "This month has changed. Reload it before changing its lock.",
+          );
+        const result = await connection.runAsync(
+          "UPDATE budget_months SET is_locked = ?, revision = ?, updated_at = ? WHERE id = ? AND revision = ?",
+          Number(locked),
+          revision + 1,
+          new Date().toISOString(),
+          id,
+          revision,
+        );
+        if (result.changes !== 1)
+          throw new BudgetStorageError(
+            "CONFLICT",
+            "This month has changed. Reload it first.",
+          );
+        return (await readMonth(connection, id))!;
       });
     },
     listTemplates: () =>

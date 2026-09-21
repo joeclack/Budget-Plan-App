@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBudgetRepository } from "../../db/context";
 import {
-  addGroup,
   copyBudget,
   createBlankMonth,
   createTemplate,
   instantiateTemplate,
-  setRowRule,
 } from "../../domain/budget";
 import type { BudgetDocument } from "../../domain/budget/types";
 import { initialiseBudget, type BudgetState } from "./initialise";
@@ -65,11 +63,25 @@ export function useBudget() {
 
   async function committed(document: BudgetDocument): Promise<BudgetState> {
     const saved = await repository.saveMonth(document);
-    await repository.setSelectedMonthId(saved.month.id);
+    const next = savedState(saved);
+    // The month is already committed. Keep its new revision even if selection fails.
+    setState(next);
+    try {
+      await repository.setSelectedMonthId(saved.month.id);
+    } catch {
+      setError("Budget saved. Your last-opened month could not be remembered.");
+    }
+    return next;
+  }
+
+  function savedState(saved: BudgetDocument): BudgetState {
     return {
       document: saved,
-      months: await repository.listMonths(),
-      templates: await repository.listTemplates(),
+      months: [
+        ...(state?.months ?? []).filter((month) => month.id !== saved.month.id),
+        saved.month,
+      ].sort((a, b) => b.year - a.year || b.month - a.month),
+      templates: state?.templates ?? [],
       period: { year: saved.month.year, month: saved.month.month },
     };
   }
@@ -103,23 +115,27 @@ export function useBudget() {
         }
         return committed(createBlankMonth(year, month));
       }),
-    addGroup: (name: string) =>
-      run(async () => {
-        if (!state?.document) throw new Error("Create a budget first.");
-        return committed(addGroup(state.document, name, "expense"));
-      }),
-    updateAmount: (rowId: string, amountMinor: number) =>
+    saveDraft: (draft: BudgetDocument) => run(() => committed(draft)),
+    setLocked: (locked: boolean) =>
       run(async () => {
         if (!state?.document) throw new Error("Open a budget first.");
-        return committed(
-          setRowRule(state.document, rowId, { kind: "fixed", amountMinor }),
+        const month = state.document.month;
+        return savedState(
+          await repository.setMonthLocked(month.id, month.revision, locked),
         );
       }),
     saveTemplate: (name: string) =>
       run(async () => {
         if (!state?.document) throw new Error("Open a budget first.");
-        await repository.saveTemplate(createTemplate(state.document, name));
-        return { ...state, templates: await repository.listTemplates() };
+        const saved = await repository.saveTemplate(
+          createTemplate(state.document, name),
+        );
+        return {
+          ...state,
+          templates: [...state.templates, saved].sort((a, b) =>
+            a.name.localeCompare(b.name),
+          ),
+        };
       }),
   };
 }
