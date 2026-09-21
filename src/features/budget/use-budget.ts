@@ -9,6 +9,12 @@ import {
   replaceTemplateStructure,
 } from "../../domain/budget";
 import type { BudgetTemplate } from "../../domain/budget";
+import {
+  defaultGroupPresentation,
+  groupPresentationFor,
+  type GroupPresentation,
+  type GroupRowSort,
+} from "../../domain/budget";
 import type { BudgetDocument } from "../../domain/budget/types";
 import { initialiseBudget, type BudgetState } from "./initialise";
 import { subscribeBudgetChanges } from "./changes";
@@ -107,7 +113,27 @@ export function useBudget() {
       ].sort((a, b) => b.year - a.year || b.month - a.month),
       templates: state?.templates ?? [],
       period: { year: saved.month.year, month: saved.month.month },
+      groupPresentation: state?.groupPresentation ?? {},
     };
+  }
+
+  function patchPresentation(
+    groupId: string,
+    patch: Partial<GroupPresentation>,
+  ) {
+    setState((current) => {
+      if (!current) return current;
+      const next = {
+        ...current.groupPresentation,
+        [groupId]: {
+          ...defaultGroupPresentation,
+          ...current.groupPresentation[groupId],
+          ...patch,
+        },
+      };
+      void repository.saveGroupPresentation(next).catch(() => undefined);
+      return { ...current, groupPresentation: next };
+    });
   }
 
   return {
@@ -198,5 +224,11 @@ export function useBudget() {
           templates: state.templates.filter((item) => item.id !== template.id),
         };
       }),
+    groupPresentation: (groupId: string) =>
+      groupPresentationFor(state?.groupPresentation ?? {}, groupId),
+    setGroupCollapsed: (groupId: string, collapsed: boolean) =>
+      patchPresentation(groupId, { collapsed }),
+    setGroupSort: (groupId: string, sort: GroupRowSort) =>
+      patchPresentation(groupId, { sort }),
   };
 }

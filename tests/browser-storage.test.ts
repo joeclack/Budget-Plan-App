@@ -330,6 +330,12 @@ test("month ordering, template replacement and invalid selection rejection survi
   );
   const reopened = createBrowserRepository(storage);
   assert.equal(await reopened.getSelectedMonthId(), "september");
+  await repository.saveGroupPresentation({
+    income: { collapsed: true, sort: "date" },
+  });
+  assert.deepEqual(await createBrowserRepository(storage).getGroupPresentation(), {
+    income: { collapsed: true, sort: "date" },
+  });
   assert.deepEqual(
     (await reopened.listTemplates()).map((item) => item.name),
     ["Updated template"],

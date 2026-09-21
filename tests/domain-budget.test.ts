@@ -24,6 +24,8 @@ import {
   renameTemplate,
   replaceTemplateStructure,
   setRowRule,
+  sortGroupRows,
+  readGroupPresentationMap,
   type AmountResult,
   type BudgetDocument,
   type BudgetReference,
@@ -545,6 +547,83 @@ test("editing helpers reject destructive invalid references and bad reorder inpu
   assert.equal(sample().rows.length, doc.rows.length);
   const unreferenced = removeRow(doc, "phone");
   assert.equal(value(evaluateBudget(unreferenced).groups.bills), 50000);
+});
+
+test("saved group presentation keeps only known sort and collapse values", () => {
+  assert.deepEqual(readGroupPresentationMap(undefined), {});
+  assert.deepEqual(
+    readGroupPresentationMap({
+      bills: { collapsed: true, sort: "amountDesc" },
+      junk: { collapsed: "yes", sort: "planned" },
+      income: { sort: "date" },
+    }),
+    {
+      bills: { collapsed: true, sort: "amountDesc" },
+      income: { collapsed: false, sort: "date" },
+    },
+  );
+});
+
+test("group rows can be sorted by planned order, amount, or payment date", () => {
+  const calendar = { year: 2026, month: 2 };
+  const rows = [
+    {
+      id: "late",
+      groupId: "bills",
+      label: "Late",
+      notes: "",
+      dueDay: 31,
+      rule: fixed(30000),
+      allocationRole: "allocation" as const,
+      sortOrder: 0,
+    },
+    {
+      id: "early",
+      groupId: "bills",
+      label: "Early",
+      notes: "",
+      dueDay: 5,
+      rule: fixed(10000),
+      allocationRole: "allocation" as const,
+      sortOrder: 1,
+    },
+    {
+      id: "undated",
+      groupId: "bills",
+      label: "Undated",
+      notes: "",
+      dueDay: null,
+      rule: fixed(20000),
+      allocationRole: "allocation" as const,
+      sortOrder: 2,
+    },
+    {
+      id: "broken",
+      groupId: "bills",
+      label: "Broken",
+      notes: "",
+      dueDay: 1,
+      rule: fixed(40000),
+      allocationRole: "allocation" as const,
+      sortOrder: 3,
+    },
+  ];
+  const amounts = {
+    late: { ok: true as const, amountMinor: 30000 },
+    early: { ok: true as const, amountMinor: 10000 },
+    undated: { ok: true as const, amountMinor: 20000 },
+    broken: {
+      ok: false as const,
+      error: { code: "cycle", message: "This row depends on itself." },
+    },
+  };
+  const ids = (sort: Parameters<typeof sortGroupRows>[2]) =>
+    sortGroupRows(rows, amounts, sort, calendar).map((row) => row.id);
+
+  assert.deepEqual(ids("planned"), ["late", "early", "undated", "broken"]);
+  assert.deepEqual(ids("amountAsc"), ["early", "undated", "late", "broken"]);
+  assert.deepEqual(ids("amountDesc"), ["late", "undated", "early", "broken"]);
+  assert.deepEqual(ids("date"), ["broken", "early", "late", "undated"]);
 });
 
 test("locked months reject editing while copies become independent unlocked months", () => {

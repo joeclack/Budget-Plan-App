@@ -9,15 +9,13 @@ import {
   View,
 } from "react-native";
 
+import { BudgetAmount } from "@/components/budget-amount";
 import { BudgetInputSheet } from "@/components/budget-input-sheet";
 import { GlassButton } from "@/components/glass-button";
-import { Money } from "@/components/money";
 import { MonthPickerSheet } from "@/components/month-picker-sheet";
 import { PlanActionsMenu } from "@/components/plan-actions-menu";
 import { Screen } from "@/components/screen";
-import { SectionCard } from "@/components/section-card";
 import {
-  describeRule,
   dueDateLabel,
   evaluateBudget,
   upcomingPayments,
@@ -34,6 +32,7 @@ import {
   RowEditor,
 } from "@/features/budget/budget-editors";
 import { Action, EditorSheet, Note } from "@/features/budget/editor-controls";
+import { PlanGroup } from "@/features/budget/plan-group";
 import { useBudget } from "@/features/budget/use-budget";
 import { TemplateManager } from "@/features/budget/template-manager";
 import { radius, spacing, typography, useAppColors } from "@/theme/tokens";
@@ -231,22 +230,13 @@ export default function BudgetScreen() {
             </Text>
             <PlanActionsMenu
               busy={busy}
-              canArrange={document.groups.length > 0}
+              canArrange={document.groups.length > 1}
               isLocked={document.month.isLocked}
               onAddGroup={() => openEditor({ kind: "group" })}
               onArrange={() => openEditor({ kind: "arrange" })}
               onToggleLock={() => openEditor({ kind: "lock" })}
             />
           </View>
-          {document.month.isLocked ? (
-            <Text style={{ color: colors.secondaryText }}>
-              This month is locked. Unlock it to make changes.
-            </Text>
-          ) : (
-            <Text style={{ color: colors.secondaryText }}>
-              Tap a row to edit its name, amount or calculation.
-            </Text>
-          )}
           {document.groups.length === 0 ? (
             <Text style={{ color: colors.secondaryText }}>
               Your month is ready. Add a group to begin.
@@ -255,107 +245,26 @@ export default function BudgetScreen() {
           {[...document.groups]
             .sort((a, b) => a.sortOrder - b.sortOrder)
             .map((group) => (
-              <SectionCard
+              <PlanGroup
                 key={group.id}
-                emphasizedHeader
-                title={group.title}
-                subtitle={
-                  {
-                    income: "Money coming in",
-                    expense: "Planned spending",
-                    saving: "Money set aside",
-                  }[group.classification]
+                busy={busy}
+                collapsed={budget.groupPresentation(group.id).collapsed}
+                document={document}
+                evaluation={evaluation}
+                group={group}
+                sort={budget.groupPresentation(group.id).sort}
+                onAddRow={() =>
+                  openEditor({ kind: "row", groupId: group.id })
                 }
-                totalContent={
-                  <BudgetAmount
-                    result={evaluation.groups[group.id]}
-                    variant="strong"
-                  />
+                onCollapsedChange={(collapsed) =>
+                  budget.setGroupCollapsed(group.id, collapsed)
                 }
-              >
-                {document.rows
-                  .filter((row) => row.groupId === group.id)
-                  .sort((a, b) => a.sortOrder - b.sortOrder)
-                  .map((row, index) => (
-                    <Pressable
-                      key={row.id}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Edit ${row.label}`}
-                      disabled={busy || document.month.isLocked}
-                      onPress={() =>
-                        openEditor({ kind: "row", row, groupId: group.id })
-                      }
-                      style={({ pressed }) => [
-                        styles.row,
-                        index > 0 && {
-                          borderTopColor: colors.separator,
-                          borderTopWidth: StyleSheet.hairlineWidth,
-                        },
-                        pressed && styles.pressed,
-                      ]}
-                    >
-                      <View style={styles.rowCopy}>
-                        <Text style={[styles.rowLabel, { color: colors.text }]}>
-                          {row.label}
-                        </Text>
-                        <Text
-                          style={[
-                            styles.rowDetail,
-                            { color: colors.secondaryText },
-                          ]}
-                        >
-                          {row.rule.kind === "fixed"
-                            ? row.notes ||
-                              (document.month.isLocked
-                                ? "Fixed amount"
-                                : "Tap to edit")
-                            : describeRule(row.rule, document)}
-                          {row.allocationRole === "informational"
-                            ? " · display only"
-                            : ""}
-                          {row.dueDay
-                            ? ` · ${dueDateLabel(document.month.year, document.month.month, row.dueDay)}`
-                            : ""}
-                        </Text>
-                      </View>
-                      <BudgetAmount result={evaluation.rows[row.id]} />
-                    </Pressable>
-                  ))}
-                {!document.rows.some((row) => row.groupId === group.id) ? (
-                  <Text
-                    style={[styles.emptyGroup, { color: colors.secondaryText }]}
-                  >
-                    No rows yet.
-                  </Text>
-                ) : null}
-                {!document.month.isLocked ? (
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      flexWrap: "wrap",
-                      gap: spacing.sm,
-                      paddingBottom: spacing.md,
-                    }}
-                  >
-                    <GlassButton
-                      accessibilityLabel={`Add row to ${group.title}`}
-                      label="Add row"
-                      compact
-                      disabled={busy}
-                      onPress={() =>
-                        openEditor({ kind: "row", groupId: group.id })
-                      }
-                    />
-                    <GlassButton
-                      accessibilityLabel={`Edit group ${group.title}`}
-                      label="Edit group"
-                      compact
-                      disabled={busy}
-                      onPress={() => openEditor({ kind: "group", group })}
-                    />
-                  </View>
-                ) : null}
-              </SectionCard>
+                onEditGroup={() => openEditor({ kind: "group", group })}
+                onEditRow={(row) =>
+                  openEditor({ kind: "row", row, groupId: group.id })
+                }
+                onSortChange={(sort) => budget.setGroupSort(group.id, sort)}
+              />
             ))}
           <GlassButton
             accessibilityLabel="Save this budget as a template"
@@ -555,34 +464,6 @@ export default function BudgetScreen() {
   );
 }
 
-function BudgetAmount({
-  result,
-  variant = "body",
-}: {
-  result: AmountResult | undefined;
-  variant?: "body" | "strong" | "hero" | "heroSmall";
-}) {
-  const colors = useAppColors();
-  return result?.ok ? (
-    <Money minorValue={result.amountMinor} variant={variant} />
-  ) : (
-    <Text
-      style={[
-        styles.rowDetail,
-        {
-          color:
-            variant === "hero" || variant === "heroSmall"
-              ? colors.heroText
-              : colors.text,
-          maxWidth: 220,
-        },
-      ]}
-    >
-      {result && !result.ok ? result.error.message : "Calculation unavailable"}
-    </Text>
-  );
-}
-
 function SummaryItem({
   label,
   result,
@@ -638,18 +519,10 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   sectionTitle: typography.title2,
-  row: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    minHeight: 58,
-    paddingVertical: spacing.sm,
-  },
   rowCopy: { flex: 1, gap: 3, paddingRight: spacing.md },
   rowLabel: typography.body,
   rowDetail: typography.caption,
   footnote: { ...typography.caption, textAlign: "center" },
-  emptyGroup: { ...typography.body, paddingVertical: spacing.md },
   emptyMonth: { gap: spacing.md },
   message: { padding: spacing.md, borderRadius: radius.md, gap: spacing.sm },
   upcoming: {

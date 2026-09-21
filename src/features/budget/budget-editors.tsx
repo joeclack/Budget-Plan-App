@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Keyboard, View } from "react-native";
-import { parseMoney, reorderGroups, reorderRows } from "@/domain/budget";
+import { GroupReorderList } from "@/components/group-reorder-list";
+import { parseMoney, reorderGroups } from "@/domain/budget";
 import type {
   AllocationRole,
   AmountRule,
@@ -424,132 +425,42 @@ export function DeleteEditor(
   );
 }
 
-function swapped(ids: string[], index: number, direction: number) {
-  const result = [...ids];
-  [result[index], result[index + direction]] = [
-    result[index + direction],
-    result[index],
-  ];
-  return result;
+function movedIds(ids: string[], source: number, destination: number) {
+  const next = [...ids];
+  const [moved] = next.splice(source, 1);
+  next.splice(source < destination ? destination - 1 : destination, 0, moved);
+  return next;
 }
+
 export function ArrangeEditor(props: Props) {
   const [draft, setDraft] = useState(props.document);
+  const [dragging, setDragging] = useState(false);
   const groups = [...draft.groups].sort((a, b) => a.sortOrder - b.sortOrder);
   return (
     <EditorSheet
-      title="Arrange your plan"
+      title="Arrange groups"
       busy={props.busy}
       onClose={props.onClose}
+      scrollEnabled={!dragging}
     >
-      <Note>
-        Move groups and rows up or down. To move a row to another group, open
-        its row editor.
-      </Note>
-      {groups.map((group, index) => {
-        const rows = draft.rows
-          .filter((row) => row.groupId === group.id)
-          .sort((a, b) => a.sortOrder - b.sortOrder);
-        return (
-          <View key={group.id} style={{ gap: 8, paddingBottom: 16 }}>
-            <View
-              style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
-            >
-              <View style={{ flex: 1 }}>
-                <Heading>{group.title}</Heading>
-              </View>
-              <Action
-                label="↑"
-                compact
-                accessibilityLabel={`Move group ${group.title} up`}
-                disabled={props.busy || index === 0}
-                onPress={() =>
-                  setDraft(
-                    reorderGroups(
-                      draft,
-                      swapped(
-                        groups.map((item) => item.id),
-                        index,
-                        -1,
-                      ),
-                    ),
-                  )
-                }
-              />
-              <Action
-                label="↓"
-                compact
-                accessibilityLabel={`Move group ${group.title} down`}
-                disabled={props.busy || index === groups.length - 1}
-                onPress={() =>
-                  setDraft(
-                    reorderGroups(
-                      draft,
-                      swapped(
-                        groups.map((item) => item.id),
-                        index,
-                        1,
-                      ),
-                    ),
-                  )
-                }
-              />
-            </View>
-            {rows.map((row, rowIndex) => (
-              <View
-                key={row.id}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 8,
-                  paddingLeft: 12,
-                }}
-              >
-                <View style={{ flex: 1 }}>
-                  <Note>{row.label}</Note>
-                </View>
-                <Action
-                  label="↑"
-                  compact
-                  accessibilityLabel={`Move row ${row.label} up`}
-                  disabled={props.busy || rowIndex === 0}
-                  onPress={() =>
-                    setDraft(
-                      reorderRows(
-                        draft,
-                        group.id,
-                        swapped(
-                          rows.map((item) => item.id),
-                          rowIndex,
-                          -1,
-                        ),
-                      ),
-                    )
-                  }
-                />
-                <Action
-                  label="↓"
-                  compact
-                  accessibilityLabel={`Move row ${row.label} down`}
-                  disabled={props.busy || rowIndex === rows.length - 1}
-                  onPress={() =>
-                    setDraft(
-                      reorderRows(
-                        draft,
-                        group.id,
-                        swapped(
-                          rows.map((item) => item.id),
-                          rowIndex,
-                          1,
-                        ),
-                      ),
-                    )
-                  }
-                />
-              </View>
-            ))}
-          </View>
-        );
-      })}
+      <GroupReorderList
+        disabled={props.busy}
+        groups={groups}
+        onDragStart={() => setDragging(true)}
+        onDragEnd={() => setDragging(false)}
+        onReorder={(from, to) => {
+          setDraft(
+            reorderGroups(
+              draft,
+              movedIds(
+                groups.map((group) => group.id),
+                from,
+                to,
+              ),
+            ),
+          );
+        }}
+      />
       <DraftPreview original={props.document} draft={draft} error={null} />
       {props.error ? <Note>{props.error}</Note> : null}
       <Action

@@ -21,7 +21,13 @@ export function EditorSheet({
   busy,
   onClose,
   children,
-}: PropsWithChildren<{ title: string; busy: boolean; onClose: () => void }>) {
+  scrollEnabled = true,
+}: PropsWithChildren<{
+  title: string;
+  busy: boolean;
+  onClose: () => void;
+  scrollEnabled?: boolean;
+}>) {
   const colors = useAppColors();
   function close() {
     if (!busy) {
@@ -64,6 +70,7 @@ export function EditorSheet({
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="interactive"
           contentContainerStyle={editorStyles.form}
+          scrollEnabled={scrollEnabled}
         >
           {children}
         </ScrollView>

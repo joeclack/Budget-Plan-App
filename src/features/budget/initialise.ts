@@ -1,4 +1,5 @@
 import type { BudgetRepository } from "../../db/repository";
+import type { GroupPresentationMap } from "../../domain/budget";
 import type {
   BudgetDocument,
   BudgetMonth,
@@ -10,6 +11,7 @@ export type BudgetState = {
   months: BudgetMonth[];
   templates: BudgetTemplate[];
   period: { year: number; month: number };
+  groupPresentation: GroupPresentationMap;
 };
 
 const pending = new WeakMap<BudgetRepository, Promise<BudgetState>>();
@@ -41,5 +43,8 @@ async function openBudget(repository: BudgetRepository): Promise<BudgetState> {
     period: document
       ? { year: document.month.year, month: document.month.month }
       : { year: now.getFullYear(), month: now.getMonth() + 1 },
+    groupPresentation: await repository
+      .getGroupPresentation()
+      .catch(() => ({})),
   };
 }

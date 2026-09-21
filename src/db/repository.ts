@@ -1,4 +1,9 @@
-import { assertValidBudget, assertValidTemplate } from "../domain/budget";
+import {
+  assertValidBudget,
+  assertValidTemplate,
+  readGroupPresentationMap,
+  type GroupPresentationMap,
+} from "../domain/budget";
 import { calculatePay, validatePayProfile } from "../domain/pay";
 import type { PayEstimateSnapshot, PayProfile } from "../domain/pay";
 import type {
@@ -38,6 +43,8 @@ export interface BudgetRepository {
   savePayProfile(profile: PayProfile): Promise<PayProfile>;
   getSelectedMonthId(): Promise<string | null>;
   setSelectedMonthId(id: string): Promise<void>;
+  getGroupPresentation(): Promise<GroupPresentationMap>;
+  saveGroupPresentation(value: GroupPresentationMap): Promise<void>;
 }
 
 export type StorageErrorCode =
@@ -648,5 +655,25 @@ export function createBudgetRepository(db: SqlDatabase): BudgetRepository {
         );
       });
     },
+    getGroupPresentation: () =>
+      transaction(async (connection) => {
+        const setting = await connection.getFirstAsync<{
+          value_json: string;
+        }>("SELECT value_json FROM app_settings WHERE key = 'groupPresentation'");
+        if (!setting) return {};
+        try {
+          return readGroupPresentationMap(JSON.parse(setting.value_json));
+        } catch {
+          return {};
+        }
+      }),
+    saveGroupPresentation: (value) =>
+      transaction(async (connection) => {
+        await connection.runAsync(
+          "INSERT INTO app_settings (key, value_json, updated_at) VALUES ('groupPresentation', ?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+          JSON.stringify(readGroupPresentationMap(value)),
+          new Date().toISOString(),
+        );
+      }),
   };
 }

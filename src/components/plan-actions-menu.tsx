@@ -50,7 +50,7 @@ export function PlanActionsMenu({
           onPress={onAddGroup}
         />
         <Button
-          label="Arrange"
+          label="Arrange groups"
           modifiers={[disabled(editingDisabled || !canArrange)]}
           systemImage="arrow.up.arrow.down"
           onPress={onArrange}

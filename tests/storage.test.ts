@@ -271,6 +271,19 @@ test("a budget reopens from disk, recalculates and retains selection without res
   );
 });
 
+test("group sort and collapse presentation survive reopening the database", async (t) => {
+  const { db, open, repository } = await setup(t);
+  await repository.saveGroupPresentation({
+    bills: { collapsed: true, sort: "amountAsc" },
+  });
+  db.close();
+  const reopened = open();
+  await migrateDatabase(reopened);
+  assert.deepEqual(await createBudgetRepository(reopened).getGroupPresentation(), {
+    bills: { collapsed: true, sort: "amountAsc" },
+  });
+});
+
 test("an injected failure partway through a save rolls all month, group and row writes back", async (t) => {
   const { db, repository } = await setup(t);
   const saved = await repository.saveMonth(fixture());

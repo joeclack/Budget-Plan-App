@@ -1,8 +1,10 @@
 import {
   assertValidBudget,
   assertValidTemplate,
+  readGroupPresentationMap,
   type BudgetDocument,
   type BudgetTemplate,
+  type GroupPresentationMap,
 } from "../domain/budget";
 import { BudgetStorageError, type BudgetRepository } from "./repository";
 import { calculatePay, validatePayProfile } from "../domain/pay";
@@ -23,6 +25,7 @@ type Snapshot = {
   selectedMonthId: string | null;
   payProfile?: PayProfile | null;
   paySnapshots?: PayEstimateSnapshot[];
+  groupPresentation?: GroupPresentationMap;
 };
 
 function invalidStorage(): BudgetStorageError {
@@ -139,6 +142,14 @@ function validateSnapshot(value: unknown): asserts value is Snapshot {
   ) {
     throw invalidStorage();
   }
+  if (snapshot.groupPresentation !== undefined) {
+    if (
+      typeof snapshot.groupPresentation !== "object" ||
+      snapshot.groupPresentation === null ||
+      Array.isArray(snapshot.groupPresentation)
+    )
+      throw invalidStorage();
+  }
 }
 
 /** Each operation reads fresh storage; failed writes never update a memory cache. */
@@ -155,6 +166,7 @@ export function createBrowserRepository(
         selectedMonthId: null,
         payProfile: null,
         paySnapshots: [],
+        groupPresentation: {},
       };
     }
     let snapshot: unknown;
@@ -445,6 +457,14 @@ export function createBrowserRepository(
         );
       }
       snapshot.selectedMonthId = id;
+      write(snapshot);
+    },
+    async getGroupPresentation() {
+      return readGroupPresentationMap(read().groupPresentation);
+    },
+    async saveGroupPresentation(value) {
+      const snapshot = read();
+      snapshot.groupPresentation = readGroupPresentationMap(value);
       write(snapshot);
     },
   };
