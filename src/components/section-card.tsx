@@ -5,6 +5,7 @@ import { Money } from "@/components/money";
 import { radius, spacing, typography, useAppColors } from "@/theme/tokens";
 
 type SectionCardProps = PropsWithChildren<{
+  emphasizedHeader?: boolean;
   subtitle?: string;
   title: string;
   total?: number;
@@ -13,6 +14,7 @@ type SectionCardProps = PropsWithChildren<{
 
 export function SectionCard({
   children,
+  emphasizedHeader = false,
   subtitle,
   title,
   total,
@@ -27,11 +29,23 @@ export function SectionCard({
         { backgroundColor: colors.surface, borderColor: colors.border },
       ]}
     >
-      <View style={styles.header}>
+      <View
+        style={[
+          styles.header,
+          emphasizedHeader && [
+            styles.emphasizedHeader,
+            { borderBottomColor: colors.separator },
+          ],
+        ]}
+      >
         <View style={styles.headerCopy}>
           <Text
             accessibilityRole="header"
-            style={[styles.title, { color: colors.text }]}
+            style={[
+              styles.title,
+              emphasizedHeader && styles.emphasizedTitle,
+              { color: colors.text },
+            ]}
           >
             {title}
           </Text>
@@ -63,5 +77,11 @@ const styles = StyleSheet.create({
   },
   headerCopy: { flex: 1, gap: 2, paddingRight: spacing.md },
   title: typography.headline,
+  emphasizedHeader: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    marginBottom: spacing.xs,
+    paddingBottom: spacing.md,
+  },
+  emphasizedTitle: { fontSize: 19, fontWeight: "700", lineHeight: 24 },
   subtitle: typography.caption,
 });
