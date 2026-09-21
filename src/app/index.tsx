@@ -34,11 +34,13 @@ import {
 } from "@/features/budget/budget-editors";
 import { Action, EditorSheet, Note } from "@/features/budget/editor-controls";
 import { useBudget } from "@/features/budget/use-budget";
+import { TemplateManager } from "@/features/budget/template-manager";
 import { radius, spacing, typography, useAppColors } from "@/theme/tokens";
 
 type Editor =
   | { kind: "group"; group?: BudgetGroup }
   | { kind: "template" }
+  | { kind: "templateManager" }
   | { kind: "row"; row?: BudgetRow; groupId: string }
   | { kind: "arrange" }
   | { kind: "lock" }
@@ -381,15 +383,18 @@ export default function BudgetScreen() {
             label="Save as template"
             onPress={() => openEditor({ kind: "template" })}
           />
+          <GlassButton
+            accessibilityLabel={`Manage ${state.templates.length} ${state.templates.length === 1 ? "template" : "templates"}`}
+            disabled={busy}
+            label={`Manage templates (${state.templates.length})`}
+            onPress={() => openEditor({ kind: "templateManager" })}
+          />
           <Text style={[styles.footnote, { color: colors.secondaryText }]}>
             {busy
               ? "Saving…"
               : Platform.OS === "web"
                 ? "Browser preview · saved in this browser"
                 : "Saved on this device"}
-            {state.templates.length
-              ? ` · ${state.templates.length} ${state.templates.length === 1 ? "template" : "templates"}`
-              : ""}
           </Text>
         </>
       ) : (
@@ -435,8 +440,27 @@ export default function BudgetScreen() {
               onPress={() => void budget.createMonth(undefined, template.id)}
             />
           ))}
+          <GlassButton
+            accessibilityLabel={`Manage ${state.templates.length} ${state.templates.length === 1 ? "template" : "templates"}`}
+            disabled={busy}
+            label={`Manage templates (${state.templates.length})`}
+            onPress={() => openEditor({ kind: "templateManager" })}
+          />
         </View>
       )}
+
+      {editor?.kind === "templateManager" ? (
+        <TemplateManager
+          templates={state.templates}
+          document={document}
+          busy={busy}
+          error={error}
+          onRename={budget.renameTemplate}
+          onReplace={budget.replaceTemplate}
+          onDelete={budget.deleteTemplate}
+          onClose={() => setEditor(null)}
+        />
+      ) : null}
 
       {editor?.kind === "template" ? (
         <BudgetInputSheet

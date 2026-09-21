@@ -432,6 +432,32 @@ test("copied months and reusable templates remap references and remain independe
   );
 });
 
+test("template deletion checks its version and leaves created months intact", async (t) => {
+  const { repository } = await setup(t);
+  const source = await repository.saveMonth(fixture());
+  const saved = await repository.saveTemplate(
+    createTemplate(source, "Regular month"),
+  );
+  const created = await repository.saveMonth(
+    instantiateTemplate(saved, 2026, 10),
+  );
+  const updated = await repository.saveTemplate({
+    ...saved,
+    name: "Updated month",
+  });
+  await assert.rejects(
+    repository.deleteTemplate(saved.id, saved.updatedAt),
+    hasCode("CONFLICT"),
+  );
+  await repository.deleteTemplate(updated.id, updated.updatedAt);
+  assert.equal(await repository.loadTemplate(updated.id), null);
+  assert.deepEqual(await repository.loadMonth(created.month.id), created);
+  await assert.rejects(
+    repository.deleteTemplate(updated.id, updated.updatedAt),
+    hasCode("NOT_FOUND"),
+  );
+});
+
 test("concurrent saves serialize across repository instances without lost updates", async (t) => {
   const { db, repository } = await setup(t);
   const saved = await repository.saveMonth(fixture());

@@ -33,6 +33,7 @@ export interface BudgetRepository {
   listTemplates(): Promise<BudgetTemplate[]>;
   loadTemplate(id: string): Promise<BudgetTemplate | null>;
   saveTemplate(template: BudgetTemplate): Promise<BudgetTemplate>;
+  deleteTemplate(id: string, updatedAt: string): Promise<void>;
   getPayProfile(): Promise<PayProfile | null>;
   savePayProfile(profile: PayProfile): Promise<PayProfile>;
   getSelectedMonthId(): Promise<string | null>;
@@ -540,6 +541,35 @@ export function createBudgetRepository(db: SqlDatabase): BudgetRepository {
           template.updatedAt,
         );
         return template;
+      });
+    },
+    async deleteTemplate(id, updatedAt) {
+      assertId(id);
+      if (!Number.isFinite(Date.parse(updatedAt)))
+        throw new BudgetStorageError(
+          "INVALID_DATA",
+          "The template version is invalid.",
+        );
+      return transaction(async (connection) => {
+        const existing = await connection.getFirstAsync<TemplateRecord>(
+          "SELECT * FROM budget_templates WHERE id = ?",
+          id,
+        );
+        if (!existing)
+          throw new BudgetStorageError(
+            "NOT_FOUND",
+            "This template no longer exists.",
+          );
+        if (existing.updated_at !== updatedAt)
+          throw new BudgetStorageError(
+            "CONFLICT",
+            "This template has changed. Reload it before deleting it.",
+          );
+        await connection.runAsync(
+          "DELETE FROM budget_templates WHERE id = ? AND updated_at = ?",
+          id,
+          updatedAt,
+        );
       });
     },
     getPayProfile: () =>

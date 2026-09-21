@@ -32,6 +32,7 @@ The Budget tab reads saved months and derives its figures from their rules. A ne
 - Lock completed months to prevent edits; explicitly unlock them when needed. Copies and saved templates remain available while locked.
 - Choose an unused month from the title picker, then start blank, copy a saved month, or use a template.
 - Add a group or save the current month as a reusable template. Copies and templates have independent IDs and remapped references.
+- Use Manage templates at the bottom of the Budget page to rename or delete templates, or replace a template's saved groups, rows, amounts and payment days with the current month. Existing budget months remain independent.
 - Edits affect only the selected month. Templates are independent snapshots; save a new template to reuse a revised structure.
 
 The Take-home tab calculates a monthly estimate from annual salary, a whole-salary pension rate and pension method. It supports England, Wales and Northern Ireland for tax years 2025/26 and 2026/27. Applying an estimate lets you choose an unlocked month's income row and saves the row change with a versioned calculation snapshot in one transaction.
