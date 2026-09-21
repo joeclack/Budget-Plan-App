@@ -1,4 +1,6 @@
 import { assertValidBudget, assertValidTemplate } from "../domain/budget";
+import { calculatePay, validatePayProfile } from "../domain/pay";
+import type { PayEstimateSnapshot, PayProfile } from "../domain/pay";
 import type {
   BudgetDocument,
   BudgetGroup,
@@ -15,10 +17,14 @@ import {
 } from "./sql";
 
 export interface BudgetRepository {
+  removeDemoData(): Promise<void>;
   listMonths(): Promise<BudgetMonth[]>;
   loadMonth(id: string): Promise<BudgetDocument | null>;
   findMonth(year: number, month: number): Promise<BudgetDocument | null>;
-  saveMonth(document: BudgetDocument): Promise<BudgetDocument>;
+  saveMonth(
+    document: BudgetDocument,
+    snapshot?: PayEstimateSnapshot,
+  ): Promise<BudgetDocument>;
   setMonthLocked(
     id: string,
     revision: number,
@@ -27,6 +33,8 @@ export interface BudgetRepository {
   listTemplates(): Promise<BudgetTemplate[]>;
   loadTemplate(id: string): Promise<BudgetTemplate | null>;
   saveTemplate(template: BudgetTemplate): Promise<BudgetTemplate>;
+  getPayProfile(): Promise<PayProfile | null>;
+  savePayProfile(profile: PayProfile): Promise<PayProfile>;
   getSelectedMonthId(): Promise<string | null>;
   setSelectedMonthId(id: string): Promise<void>;
 }
@@ -72,6 +80,7 @@ type RowRecord = {
   group_id: string;
   label: string;
   notes: string | null;
+  due_day: number | null;
   rule_json: string;
   allocation_role: BudgetRow["allocationRole"];
   sort_order: number;
@@ -83,9 +92,36 @@ type TemplateRecord = {
   created_at: string;
   updated_at: string;
 };
+type PayProfileRecord = {
+  id: "primary";
+  annual_salary_minor: number;
+  pension_rate_bps: number;
+  pension_method: PayProfile["pensionMethod"];
+  pension_basis: "whole_salary";
+  country: PayProfile["country"];
+  tax_year: PayProfile["taxYear"];
+  updated_at: string;
+};
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+function assertSnapshot(snapshot: PayEstimateSnapshot) {
+  if (!snapshot.id?.trim() || !snapshot.budgetRowId?.trim())
+    throw new BudgetStorageError(
+      "INVALID_DATA",
+      "Invalid pay estimate snapshot.",
+    );
+  validatePayProfile(snapshot.inputs);
+  const expected = calculatePay(snapshot.inputs, snapshot.calculatedAt);
+  if (
+    snapshot.rulesetVersion !== expected.rulesetVersion ||
+    JSON.stringify(snapshot.result) !== JSON.stringify(expected)
+  )
+    throw new BudgetStorageError(
+      "INVALID_DATA",
+      "The pay estimate snapshot does not match its inputs.",
+    );
 }
 function assertId(id: string) {
   if (typeof id !== "string" || id.trim().length === 0)
@@ -162,6 +198,7 @@ async function readMonth(
       groupId: row.group_id,
       label: row.label,
       notes: row.notes ?? "",
+      dueDay: row.due_day,
       rule: JSON.parse(row.rule_json),
       allocationRole: row.allocation_role,
       sortOrder: row.sort_order,
@@ -176,6 +213,45 @@ export function createBudgetRepository(db: SqlDatabase): BudgetRepository {
   const transaction = <T>(task: (connection: SqlConnection) => Promise<T>) =>
     serializeDatabase(db, () => inTransaction(db, task));
   return {
+    removeDemoData: () =>
+      transaction(async (connection) => {
+        const demoRows = await connection.getAllAsync<{ id: string }>(
+          "SELECT id FROM budget_months WHERE name = 'Example budget'",
+        );
+        if (!demoRows.length) return;
+        const selection = await connection.getFirstAsync<{
+          value_json: string;
+        }>("SELECT value_json FROM app_settings WHERE key = 'selectedMonthId'");
+        await connection.runAsync(`UPDATE pay_estimate_snapshots
+          SET budget_row_id = NULL
+          WHERE budget_row_id IN (
+            SELECT r.id FROM budget_rows r
+            JOIN budget_groups g ON g.id = r.group_id
+            JOIN budget_months m ON m.id = g.month_id
+            WHERE m.name = 'Example budget'
+          )`);
+        await connection.runAsync(`DELETE FROM budget_rows WHERE group_id IN (
+          SELECT g.id FROM budget_groups g
+          JOIN budget_months m ON m.id = g.month_id
+          WHERE m.name = 'Example budget'
+        )`);
+        await connection.runAsync(`DELETE FROM budget_groups WHERE month_id IN (
+          SELECT id FROM budget_months WHERE name = 'Example budget'
+        )`);
+        await connection.runAsync(
+          "DELETE FROM budget_months WHERE name = 'Example budget'",
+        );
+        if (
+          selection &&
+          demoRows.some(
+            (row) => selection.value_json === JSON.stringify(row.id),
+          )
+        )
+          await connection.runAsync(
+            "DELETE FROM app_settings WHERE key = 'selectedMonthId'",
+          );
+        await assertForeignKeys(connection);
+      }),
     listMonths: () =>
       transaction(async (connection) => {
         const months = await connection.getAllAsync<MonthRecord>(
@@ -198,8 +274,9 @@ export function createBudgetRepository(db: SqlDatabase): BudgetRepository {
         return record ? readMonth(connection, record.id) : null;
       });
     },
-    async saveMonth(input) {
+    async saveMonth(input, inputSnapshot) {
       assertValidBudget(input);
+      if (inputSnapshot) assertSnapshot(inputSnapshot);
       if (input.month.revision === Number.MAX_SAFE_INTEGER)
         throw new BudgetStorageError(
           "INVALID_DATA",
@@ -207,6 +284,7 @@ export function createBudgetRepository(db: SqlDatabase): BudgetRepository {
         );
       // Capture before queueing: changing a caller's draft cannot change an in-flight save.
       const document = clone(input);
+      const snapshot = inputSnapshot ? clone(inputSnapshot) : undefined;
       return transaction(async (connection) => {
         const month = document.month;
         const existing = await connection.getFirstAsync<MonthRecord>(
@@ -262,6 +340,14 @@ export function createBudgetRepository(db: SqlDatabase): BudgetRepository {
               "A row belongs to another month. Copy it with a new identifier.",
             );
         }
+        if (
+          snapshot &&
+          !document.rows.some((row) => row.id === snapshot.budgetRowId)
+        )
+          throw new BudgetStorageError(
+            "INVALID_DATA",
+            "The salary row does not belong to this month.",
+          );
         const previousRows = await connection.getAllAsync<{ id: string }>(
           "SELECT r.id FROM budget_rows r JOIN budget_groups g ON g.id = r.group_id WHERE g.month_id = ?",
           month.id,
@@ -315,16 +401,27 @@ export function createBudgetRepository(db: SqlDatabase): BudgetRepository {
         }
         for (const row of document.rows) {
           await connection.runAsync(
-            "INSERT INTO budget_rows (id, group_id, label, notes, rule_json, allocation_role, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET group_id = excluded.group_id, label = excluded.label, notes = excluded.notes, rule_json = excluded.rule_json, allocation_role = excluded.allocation_role, sort_order = excluded.sort_order",
+            "INSERT INTO budget_rows (id, group_id, label, notes, due_day, rule_json, allocation_role, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET group_id = excluded.group_id, label = excluded.label, notes = excluded.notes, due_day = excluded.due_day, rule_json = excluded.rule_json, allocation_role = excluded.allocation_role, sort_order = excluded.sort_order",
             row.id,
             row.groupId,
             row.label,
             row.notes,
+            row.dueDay ?? null,
             JSON.stringify(row.rule),
             row.allocationRole,
             row.sortOrder,
           );
         }
+        if (snapshot)
+          await connection.runAsync(
+            "INSERT INTO pay_estimate_snapshots (id, budget_row_id, inputs_json, result_json, ruleset_version, calculated_at) VALUES (?, ?, ?, ?, ?, ?)",
+            snapshot.id,
+            snapshot.budgetRowId,
+            JSON.stringify(snapshot.inputs),
+            JSON.stringify(snapshot.result),
+            snapshot.rulesetVersion,
+            snapshot.calculatedAt,
+          );
         const retainedRows = new Set(document.rows.map((row) => row.id));
         for (const row of previousRows) {
           if (retainedRows.has(row.id)) continue;
@@ -443,6 +540,44 @@ export function createBudgetRepository(db: SqlDatabase): BudgetRepository {
           template.updatedAt,
         );
         return template;
+      });
+    },
+    getPayProfile: () =>
+      transaction(async (connection) => {
+        const row = await connection.getFirstAsync<PayProfileRecord>(
+          "SELECT * FROM pay_profiles WHERE id = 'primary'",
+        );
+        if (!row) return null;
+        const profile: PayProfile = {
+          id: row.id,
+          annualSalaryMinor: row.annual_salary_minor,
+          pensionRateBps: row.pension_rate_bps,
+          pensionMethod: row.pension_method,
+          pensionBasis: row.pension_basis,
+          country: row.country,
+          taxYear: row.tax_year,
+          updatedAt: row.updated_at,
+        };
+        validatePayProfile(profile);
+        return profile;
+      }),
+    async savePayProfile(input) {
+      validatePayProfile(input);
+      const profile = clone(input);
+      profile.updatedAt = new Date().toISOString();
+      return transaction(async (connection) => {
+        await connection.runAsync(
+          "INSERT INTO pay_profiles (id, annual_salary_minor, pension_rate_bps, pension_method, pension_basis, country, tax_year, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET annual_salary_minor = excluded.annual_salary_minor, pension_rate_bps = excluded.pension_rate_bps, pension_method = excluded.pension_method, pension_basis = excluded.pension_basis, country = excluded.country, tax_year = excluded.tax_year, updated_at = excluded.updated_at",
+          profile.id,
+          profile.annualSalaryMinor,
+          profile.pensionRateBps,
+          profile.pensionMethod,
+          profile.pensionBasis,
+          profile.country,
+          profile.taxYear,
+          profile.updatedAt,
+        );
+        return profile;
       });
     },
     getSelectedMonthId: () =>

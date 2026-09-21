@@ -35,7 +35,7 @@ export function editRow(
   document: BudgetDocument,
   value: Pick<
     BudgetRow,
-    "label" | "notes" | "groupId" | "rule" | "allocationRole"
+    "label" | "notes" | "dueDay" | "groupId" | "rule" | "allocationRole"
   >,
   id?: string,
 ): BudgetDocument {

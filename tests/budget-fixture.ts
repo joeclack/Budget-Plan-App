@@ -1,17 +1,17 @@
-import { assertValidBudget, createBlankMonth, newId } from "../domain/budget";
+import {
+  assertValidBudget,
+  createBlankMonth,
+  newId,
+} from "../src/domain/budget";
 import type {
   AmountRule,
   BudgetDocument,
   Classification,
-} from "../domain/budget/types";
+} from "../src/domain/budget";
 
-/** Seeds only a new installation; all subsequent values come from storage. */
-export function createExampleBudget(
-  year: number,
-  month: number,
-): BudgetDocument {
+export function createBudgetFixture(year = 2026, month = 9): BudgetDocument {
   const document = createBlankMonth(year, month);
-  document.month.name = "Example budget";
+  document.month.name = "Household";
   function group(title: string, classification: Classification) {
     const id = newId();
     document.groups.push({
@@ -36,17 +36,18 @@ export function createExampleBudget(
       label,
       rule,
       notes: "",
+      dueDay: null,
       allocationRole: informational ? "informational" : "allocation",
       sortOrder: document.rows.filter((item) => item.groupId === groupId)
         .length,
     });
     return id;
   }
-  const income = group("Income", "income");
-  const bills = group("Bills", "expense");
-  const subscriptions = group("Subscriptions", "expense");
-  const giving = group("Giving", "expense");
-  const savings = group("Savings", "saving");
+  const income = group("Income", "income"),
+    bills = group("Bills", "expense"),
+    subscriptions = group("Subscriptions", "expense"),
+    giving = group("Giving", "expense"),
+    savings = group("Savings", "saving");
   const salary = row(income, "Salary", { kind: "fixed", amountMinor: 342000 });
   row(bills, "Rent", { kind: "fixed", amountMinor: 110000 });
   row(bills, "Car finance", { kind: "fixed", amountMinor: 23300 });

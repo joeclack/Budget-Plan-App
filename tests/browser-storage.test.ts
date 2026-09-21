@@ -8,6 +8,8 @@ import {
 } from "../src/db/browser-repository";
 import { BudgetStorageError } from "../src/db/repository";
 import type { BudgetDocument, BudgetTemplate } from "../src/domain/budget";
+import { calculatePay } from "../src/domain/pay";
+import type { PayProfile } from "../src/domain/pay";
 
 class MemoryStorage implements BrowserStorage {
   values = new Map<string, string>();
@@ -124,6 +126,61 @@ test("browser preview reopens saved budgets, templates and selected month", asyn
   assert.deepEqual(await reopened.listMonths(), [saved.month]);
   assert.equal(await reopened.getSelectedMonthId(), "september");
   assert.equal(storage.values.size, 1);
+});
+
+test("browser pay settings, due dates and an applied estimate persist atomically", async () => {
+  const storage = new MemoryStorage();
+  const repository = createBrowserRepository(storage);
+  const saved = await repository.saveMonth(document());
+  saved.rows[0].dueDay = 28;
+  const profile: PayProfile = {
+    id: "primary",
+    annualSalaryMinor: 4_800_000,
+    pensionRateBps: 500,
+    pensionMethod: "net_pay",
+    pensionBasis: "whole_salary",
+    country: "england",
+    taxYear: "2026/27",
+    updatedAt: "2026-09-21T00:00:00.000Z",
+  };
+  const storedProfile = await repository.savePayProfile(profile);
+  const calculatedAt = "2026-09-21T12:00:00.000Z";
+  const result = calculatePay(storedProfile, calculatedAt);
+  saved.rows[0].rule = {
+    kind: "fixed",
+    amountMinor: result.monthlyTakeHomeMinor,
+  };
+  const applied = await repository.saveMonth(saved, {
+    id: "pay-snapshot",
+    budgetRowId: saved.rows[0].id,
+    inputs: storedProfile,
+    result,
+    rulesetVersion: result.rulesetVersion,
+    calculatedAt,
+  });
+  assert.equal(applied.rows[0].dueDay, 28);
+  assert.equal(
+    (applied.rows[0].rule as { kind: "fixed"; amountMinor: number })
+      .amountMinor,
+    301334,
+  );
+  assert.deepEqual(await repository.getPayProfile(), storedProfile);
+
+  const before = storage.getItem(BROWSER_STORAGE_KEY);
+  const invalid = structuredClone(applied);
+  invalid.rows[0].rule = { kind: "fixed", amountMinor: 1 };
+  await assert.rejects(
+    repository.saveMonth(invalid, {
+      id: "bad-snapshot",
+      budgetRowId: invalid.rows[0].id,
+      inputs: storedProfile,
+      result: { ...result, monthlyTakeHomeMinor: 1 },
+      rulesetVersion: result.rulesetVersion,
+      calculatedAt,
+    }),
+    hasCode("INVALID_DATA"),
+  );
+  assert.equal(storage.getItem(BROWSER_STORAGE_KEY), before);
 });
 
 test("fresh snapshots prevent stale repository instances from overwriting newer revisions", async () => {

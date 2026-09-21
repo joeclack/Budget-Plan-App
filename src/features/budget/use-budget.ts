@@ -8,6 +8,8 @@ import {
 } from "../../domain/budget";
 import type { BudgetDocument } from "../../domain/budget/types";
 import { initialiseBudget, type BudgetState } from "./initialise";
+import { subscribeBudgetChanges } from "./changes";
+import type { PayEstimateSnapshot } from "../../domain/pay";
 
 export function useBudget() {
   const repository = useBudgetRepository();
@@ -40,6 +42,22 @@ export function useBudget() {
     };
   }, [initialise]);
 
+  useEffect(
+    () =>
+      subscribeBudgetChanges(() => {
+        initialise()
+          .then(setState)
+          .catch((reason: unknown) =>
+            setError(
+              reason instanceof Error
+                ? reason.message
+                : "Unable to refresh budgets.",
+            ),
+          );
+      }),
+    [initialise],
+  );
+
   async function run(action: () => Promise<BudgetState>): Promise<boolean> {
     if (pending.current) return false;
     pending.current = true;
@@ -61,8 +79,11 @@ export function useBudget() {
     }
   }
 
-  async function committed(document: BudgetDocument): Promise<BudgetState> {
-    const saved = await repository.saveMonth(document);
+  async function committed(
+    document: BudgetDocument,
+    snapshot?: PayEstimateSnapshot,
+  ): Promise<BudgetState> {
+    const saved = await repository.saveMonth(document, snapshot);
     const next = savedState(saved);
     // The month is already committed. Keep its new revision even if selection fails.
     setState(next);
@@ -115,7 +136,8 @@ export function useBudget() {
         }
         return committed(createBlankMonth(year, month));
       }),
-    saveDraft: (draft: BudgetDocument) => run(() => committed(draft)),
+    saveDraft: (draft: BudgetDocument, snapshot?: PayEstimateSnapshot) =>
+      run(() => committed(draft, snapshot)),
     setLocked: (locked: boolean) =>
       run(async () => {
         if (!state?.document) throw new Error("Open a budget first.");

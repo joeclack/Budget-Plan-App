@@ -18,6 +18,8 @@ import {
 } from "../src/db/repository";
 import { assertForeignKeys, inTransaction } from "../src/db/sql";
 import { openTestDatabase } from "./sqlite-adapter";
+import { calculatePay } from "../src/domain/pay";
+import type { PayProfile } from "../src/domain/pay";
 
 function fixture(id = "september", month = 9): BudgetDocument {
   const stamp = "2026-09-20T12:00:00.000Z";
@@ -127,6 +129,87 @@ async function setup(t: TestContext, migrate = true) {
 
 const hasCode = (code: string) => (error: unknown) =>
   error instanceof BudgetStorageError && error.code === code;
+
+test("pay profiles persist and applying an estimate saves the row and snapshot atomically", async (t) => {
+  const { db, repository } = await setup(t);
+  const saved = await repository.saveMonth(fixture());
+  saved.rows[1].dueDay = 31;
+  const profile: PayProfile = {
+    id: "primary",
+    annualSalaryMinor: 4_800_000,
+    pensionRateBps: 500,
+    pensionMethod: "net_pay",
+    pensionBasis: "whole_salary",
+    country: "england",
+    taxYear: "2026/27",
+    updatedAt: "2026-09-21T00:00:00.000Z",
+  };
+  const storedProfile = await repository.savePayProfile(profile);
+  assert.deepEqual(await repository.getPayProfile(), storedProfile);
+  const calculatedAt = "2026-09-21T12:00:00.000Z";
+  const result = calculatePay(storedProfile, calculatedAt);
+  saved.rows[0].rule = {
+    kind: "fixed",
+    amountMinor: result.monthlyTakeHomeMinor,
+  };
+  const applied = await repository.saveMonth(saved, {
+    id: "pay-snapshot",
+    budgetRowId: saved.rows[0].id,
+    inputs: storedProfile,
+    result,
+    rulesetVersion: result.rulesetVersion,
+    calculatedAt,
+  });
+  assert.deepEqual(applied.rows[0].rule, {
+    kind: "fixed",
+    amountMinor: 301334,
+  });
+  assert.equal(applied.rows[1].dueDay, 31);
+  assert.equal(
+    (
+      await db.getFirstAsync<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM pay_estimate_snapshots",
+      )
+    )?.count,
+    1,
+  );
+  const invalid = structuredClone(applied);
+  invalid.rows[0].rule = { kind: "fixed", amountMinor: 1 };
+  await assert.rejects(
+    repository.saveMonth(invalid, {
+      id: "bad-snapshot",
+      budgetRowId: invalid.rows[0].id,
+      inputs: storedProfile,
+      result: { ...result, monthlyTakeHomeMinor: 1 },
+      rulesetVersion: result.rulesetVersion,
+      calculatedAt,
+    }),
+    hasCode("INVALID_DATA"),
+  );
+  assert.deepEqual(
+    (await repository.loadMonth(applied.month.id))?.rows[0].rule,
+    applied.rows[0].rule,
+  );
+});
+
+test("legacy demo removal preserves a personal selection and clears a removed selection", async (t) => {
+  const { repository } = await setup(t);
+  const demo = fixture("demo");
+  demo.month.name = "Example budget";
+  await repository.saveMonth(demo);
+  const personal = await repository.saveMonth(fixture("personal", 10));
+  await repository.setSelectedMonthId(personal.month.id);
+  await repository.removeDemoData();
+  assert.equal(await repository.getSelectedMonthId(), personal.month.id);
+  assert.equal(await repository.loadMonth(demo.month.id), null);
+
+  const selectedDemo = fixture("selected-demo", 11);
+  selectedDemo.month.name = "Example budget";
+  const savedDemo = await repository.saveMonth(selectedDemo);
+  await repository.setSelectedMonthId(savedDemo.month.id);
+  await repository.removeDemoData();
+  assert.equal(await repository.getSelectedMonthId(), null);
+});
 
 test("explicit lock and unlock persist, preserve contents and reject stale writers", async (t) => {
   const { repository, open } = await setup(t);
@@ -504,7 +587,7 @@ test("version 1 upgrades preserve months, rules, pay data and settings", async (
   assert.equal(
     (await db.getFirstAsync<{ user_version: number }>("PRAGMA user_version"))
       ?.user_version,
-    2,
+    3,
   );
   assert.equal((await repository.saveMonth(loaded)).month.revision, 2);
 });

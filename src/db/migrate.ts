@@ -5,7 +5,7 @@ import {
   type SqlDatabase,
 } from "./sql";
 
-export const DATABASE_VERSION = 2;
+export const DATABASE_VERSION = 3;
 
 export async function migrateDatabase(db: SqlDatabase) {
   return serializeDatabase(db, async () => {
@@ -92,12 +92,17 @@ export async function migrateDatabase(db: SqlDatabase) {
     `);
       }
 
-      await transaction.execAsync(`
+      if (currentVersion < 2)
+        await transaction.execAsync(`
     ALTER TABLE budget_months ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 0);
     CREATE INDEX budget_groups_month_order ON budget_groups(month_id, sort_order, id);
     CREATE INDEX budget_rows_group_order ON budget_rows(group_id, sort_order, id);
     CREATE INDEX pay_snapshots_budget_row ON pay_estimate_snapshots(budget_row_id);
   `);
+      if (currentVersion < 3)
+        await transaction.execAsync(
+          "ALTER TABLE budget_rows ADD COLUMN due_day INTEGER CHECK (due_day BETWEEN 1 AND 31);",
+        );
       await assertForeignKeys(transaction);
       await transaction.execAsync(`PRAGMA user_version = ${DATABASE_VERSION};`);
     });
