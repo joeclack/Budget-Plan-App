@@ -59,6 +59,7 @@ export default function BudgetScreen() {
   const colors = useAppColors();
   const budget = useBudget();
   const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+  const [isPlanMenuOpen, setIsPlanMenuOpen] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
   const { state, busy, error } = budget;
 
@@ -229,35 +230,58 @@ export default function BudgetScreen() {
               Your plan
             </Text>
             <GlassButton
-              accessibilityLabel="Add a budget group"
-              compact
-              disabled={busy || document.month.isLocked}
-              label="Add"
-              onPress={() => openEditor({ kind: "group" })}
-            />
-          </View>
-          <View
-            style={{ flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }}
-          >
-            <GlassButton
-              accessibilityLabel="Arrange groups and rows"
-              label="Arrange"
-              compact
-              disabled={
-                busy || document.month.isLocked || !document.groups.length
-              }
-              onPress={() => openEditor({ kind: "arrange" })}
-            />
-            <GlassButton
               accessibilityLabel={
-                document.month.isLocked ? "Unlock month" : "Lock month"
+                isPlanMenuOpen ? "Close plan actions" : "Open plan actions"
               }
-              label={document.month.isLocked ? "Unlock month" : "Lock month"}
               compact
               disabled={busy}
-              onPress={() => openEditor({ kind: "lock" })}
+              label={isPlanMenuOpen ? "Actions ▴" : "Actions ▾"}
+              onPress={() => setIsPlanMenuOpen((open) => !open)}
             />
           </View>
+          {isPlanMenuOpen ? (
+            <View
+              style={[
+                styles.planMenu,
+                { backgroundColor: colors.surface, borderColor: colors.border },
+              ]}
+            >
+              <GlassButton
+                accessibilityLabel="Add a budget group"
+                compact
+                disabled={busy || document.month.isLocked}
+                label="Add group"
+                onPress={() => {
+                  setIsPlanMenuOpen(false);
+                  openEditor({ kind: "group" });
+                }}
+              />
+              <GlassButton
+                accessibilityLabel="Arrange groups and rows"
+                compact
+                disabled={
+                  busy || document.month.isLocked || !document.groups.length
+                }
+                label="Arrange"
+                onPress={() => {
+                  setIsPlanMenuOpen(false);
+                  openEditor({ kind: "arrange" });
+                }}
+              />
+              <GlassButton
+                accessibilityLabel={
+                  document.month.isLocked ? "Unlock month" : "Lock month"
+                }
+                compact
+                disabled={busy}
+                label={document.month.isLocked ? "Unlock month" : "Lock month"}
+                onPress={() => {
+                  setIsPlanMenuOpen(false);
+                  openEditor({ kind: "lock" });
+                }}
+              />
+            </View>
+          ) : null}
           {document.month.isLocked ? (
             <Text style={{ color: colors.secondaryText }}>
               This month is locked. Unlock it to make changes.
@@ -658,6 +682,14 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   sectionTitle: typography.title2,
+  planMenu: {
+    alignSelf: "flex-end",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: spacing.xs,
+    minWidth: 176,
+    padding: spacing.xs,
+  },
   row: {
     alignItems: "center",
     flexDirection: "row",
