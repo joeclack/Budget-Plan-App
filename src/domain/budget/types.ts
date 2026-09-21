@@ -1,3 +1,5 @@
+import type { GroupColor } from "./color";
+
 /** Money is an integer number of pence. Calendar months are 1-based. */
 export type MinorUnits = number;
 export type Classification = "income" | "expense" | "saving";
@@ -35,6 +37,7 @@ export type BudgetGroup = {
   title: string;
   classification: Classification;
   sortOrder: number;
+  color?: GroupColor;
 };
 export type BudgetRow = {
   id: string;

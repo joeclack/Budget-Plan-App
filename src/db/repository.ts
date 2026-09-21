@@ -1,6 +1,7 @@
 import {
   assertValidBudget,
   assertValidTemplate,
+  isGroupColor,
   readGroupPresentationMap,
   type GroupPresentationMap,
 } from "../domain/budget";
@@ -82,6 +83,7 @@ type GroupRecord = {
   title: string;
   classification: BudgetGroup["classification"];
   sort_order: number;
+  color: string | null;
 };
 type RowRecord = {
   id: string;
@@ -200,6 +202,7 @@ async function readMonth(
       title: group.title,
       classification: group.classification,
       sortOrder: group.sort_order,
+      ...(isGroupColor(group.color) ? { color: group.color } : {}),
     })),
     rows: rows.map((row) => ({
       id: row.id,
@@ -399,12 +402,13 @@ export function createBudgetRepository(db: SqlDatabase): BudgetRepository {
         // Upsert retained identities instead of replacing: linked pay snapshots survive edits.
         for (const group of document.groups) {
           await connection.runAsync(
-            "INSERT INTO budget_groups (id, month_id, title, classification, sort_order) VALUES (?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title = excluded.title, classification = excluded.classification, sort_order = excluded.sort_order",
+            "INSERT INTO budget_groups (id, month_id, title, classification, sort_order, color) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET title = excluded.title, classification = excluded.classification, sort_order = excluded.sort_order, color = excluded.color",
             group.id,
             group.monthId,
             group.title,
             group.classification,
             group.sortOrder,
+            group.color ?? null,
           );
         }
         for (const row of document.rows) {
@@ -659,7 +663,9 @@ export function createBudgetRepository(db: SqlDatabase): BudgetRepository {
       transaction(async (connection) => {
         const setting = await connection.getFirstAsync<{
           value_json: string;
-        }>("SELECT value_json FROM app_settings WHERE key = 'groupPresentation'");
+        }>(
+          "SELECT value_json FROM app_settings WHERE key = 'groupPresentation'",
+        );
         if (!setting) return {};
         try {
           return readGroupPresentationMap(JSON.parse(setting.value_json));

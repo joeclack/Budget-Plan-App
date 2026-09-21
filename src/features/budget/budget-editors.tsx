@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Keyboard, View } from "react-native";
+import { GroupColorPicker } from "@/components/group-color-picker";
 import { GroupReorderList } from "@/components/group-reorder-list";
 import { parseMoney, reorderGroups } from "@/domain/budget";
 import type {
@@ -9,6 +10,7 @@ import type {
   BudgetGroup,
   BudgetRow,
   Classification,
+  GroupColor,
 } from "@/domain/budget";
 import {
   deletionDraft,
@@ -21,7 +23,6 @@ import {
 import {
   Action,
   Choices,
-  DraftPreview,
   EditorSheet,
   Field,
   Heading,
@@ -66,8 +67,15 @@ export function GroupEditor(
   const [classification, setClassification] = useState<Classification>(
     props.group?.classification ?? "expense",
   );
+  const [color, setColor] = useState<GroupColor | undefined>(
+    props.group?.color,
+  );
   const preview = attempt(() =>
-    editGroup(props.document, { title: name, classification }, props.group?.id),
+    editGroup(
+      props.document,
+      { title: name, classification, color },
+      props.group?.id,
+    ),
   );
   return (
     <EditorSheet
@@ -79,7 +87,7 @@ export function GroupEditor(
         label="Group name"
         value={name}
         onChange={setName}
-        autoFocus
+        autoFocus={!props.group}
         disabled={props.busy}
       />
       <Choices
@@ -89,15 +97,16 @@ export function GroupEditor(
         onChange={setClassification}
         disabled={props.busy}
       />
+      <GroupColorPicker
+        disabled={props.busy}
+        onChange={setColor}
+        value={color}
+      />
       <Note>
         Income adds money to the plan. Spending and savings reduce what is left
         to plan.
       </Note>
-      <DraftPreview
-        original={props.document}
-        draft={preview.draft}
-        error={name.trim() ? preview.error : null}
-      />
+      {name.trim() && preview.error ? <Note>{preview.error}</Note> : null}
       {props.error ? <Note>{props.error}</Note> : null}
       <Action
         label={props.busy ? "Saving…" : "Save group"}
@@ -349,11 +358,7 @@ export function RowEditor(
         onChange={setNotes}
         disabled={props.busy}
       />
-      <DraftPreview
-        original={props.document}
-        draft={preview.draft}
-        error={label.trim() ? preview.error : null}
-      />
+      {label.trim() && preview.error ? <Note>{preview.error}</Note> : null}
       {props.error ? <Note>{props.error}</Note> : null}
       <Action
         label={props.busy ? "Saving…" : "Save row"}
@@ -411,9 +416,7 @@ export function DeleteEditor(
             budget still calculates correctly.
           </Note>
         </>
-      ) : (
-        <DraftPreview original={props.document} draft={draft} error={null} />
-      )}
+      ) : null}
       {props.error ? <Note>{props.error}</Note> : null}
       <Action
         label={`Delete ${props.target.kind}`}
@@ -461,7 +464,6 @@ export function ArrangeEditor(props: Props) {
           );
         }}
       />
-      <DraftPreview original={props.document} draft={draft} error={null} />
       {props.error ? <Note>{props.error}</Note> : null}
       <Action
         label="Save order"

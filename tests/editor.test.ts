@@ -76,13 +76,26 @@ test("group classification and new rows change the monthly preview", () => {
   });
   const spending = editGroup(
     withRow,
-    { title: "Sales costs", classification: "expense" },
+    { title: "Sales costs", classification: "expense", color: "peach" },
     group.id,
+  );
+  assert.equal(
+    spending.groups.find((item) => item.id === group.id)?.color,
+    "peach",
   );
   assert.deepEqual(evaluateBudget(spending).leftToPlan, {
     ok: true,
     amountMinor: 44500,
   });
+  const cleared = editGroup(
+    spending,
+    { title: "Sales costs", classification: "expense" },
+    group.id,
+  );
+  assert.equal(
+    cleared.groups.find((item) => item.id === group.id)?.color,
+    undefined,
+  );
 });
 
 test("expression editor preserves arithmetic precedence, brackets, unary signs and named references", () => {

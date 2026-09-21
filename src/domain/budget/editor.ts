@@ -10,18 +10,23 @@ import type {
 
 export function editGroup(
   document: BudgetDocument,
-  value: Pick<BudgetGroup, "title" | "classification">,
+  value: Pick<BudgetGroup, "title" | "classification" | "color">,
   id?: string,
 ): BudgetDocument {
   const draft = editable(document);
+  const next = {
+    title: value.title.trim(),
+    classification: value.classification,
+    ...(value.color ? { color: value.color } : {}),
+  };
   if (id) {
     const group = draft.groups.find((item) => item.id === id);
     if (!group) throw new Error("This group no longer exists.");
-    Object.assign(group, value, { title: value.title.trim() });
+    delete group.color;
+    Object.assign(group, next);
   } else
     draft.groups.push({
-      ...value,
-      title: value.title.trim(),
+      ...next,
       id: newId(),
       monthId: draft.month.id,
       sortOrder:

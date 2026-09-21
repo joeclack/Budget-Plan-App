@@ -1,30 +1,20 @@
 import { GlassView, isGlassEffectAPIAvailable } from "expo-glass-effect";
 import { SymbolView } from "expo-symbols";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo,
-  ActionSheetIOS,
   Modal,
   Platform,
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
-
+import type { HeaderIconMenuProps } from "@/components/header-icon-menu-types";
 import { radius, spacing, typography, useAppColors } from "@/theme/tokens";
 
-type HeaderIconMenuOption = {
-  label: string;
-  onPress: () => void;
-};
-
-type HeaderIconMenuProps = {
-  accessibilityLabel: string;
-  disabled?: boolean;
-  options: HeaderIconMenuOption[];
-  systemImage: "arrow.up.arrow.down" | "ellipsis.circle";
-};
+type Anchor = { x: number; y: number; width: number; height: number };
 
 export function HeaderIconMenu({
   accessibilityLabel,
@@ -33,7 +23,9 @@ export function HeaderIconMenu({
   systemImage,
 }: HeaderIconMenuProps) {
   const colors = useAppColors();
-  const [open, setOpen] = useState(false);
+  const buttonRef = useRef<View>(null);
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
   const [reduceTransparency, setReduceTransparency] = useState(false);
 
   useEffect(() => {
@@ -49,21 +41,37 @@ export function HeaderIconMenu({
   const supportsGlass =
     Platform.OS === "ios" && !reduceTransparency && isGlassEffectAPIAvailable();
 
+  function close() {
+    setAnchor(null);
+  }
+
   function present() {
     if (disabled) return;
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          cancelButtonIndex: options.length,
-          options: [...options.map((option) => option.label), "Cancel"],
-        },
-        (index) => {
-          if (index != null && index < options.length) options[index].onPress();
-        },
-      );
-      return;
-    }
-    setOpen(true);
+    const node = buttonRef.current;
+    if (!node) return;
+
+    // Defer the overlay until after this click finishes. On web, mounting a
+    // full-screen backdrop in the same event lets that click dismiss the menu.
+    const open = (next: Anchor) => {
+      requestAnimationFrame(() => setAnchor(next));
+    };
+
+    node.measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) {
+        open({ x, y, width, height });
+        return;
+      }
+      requestAnimationFrame(() => {
+        node.measureInWindow((nextX, nextY, nextWidth, nextHeight) => {
+          open({
+            x: nextX,
+            y: nextY,
+            width: nextWidth,
+            height: nextHeight,
+          });
+        });
+      });
+    });
   }
 
   const icon = (
@@ -80,13 +88,29 @@ export function HeaderIconMenu({
     />
   );
 
+  const menuWidth = 248;
+  const menuTop = anchor ? anchor.y + anchor.height + 8 : 0;
+  const menuLeft = anchor
+    ? Math.max(
+        spacing.md,
+        Math.min(
+          anchor.x + anchor.width - menuWidth,
+          windowWidth - menuWidth - spacing.md,
+        ),
+      )
+    : 0;
+  const openDown = !anchor || menuTop + 220 < windowHeight - spacing.xl;
+
   return (
     <>
       <Pressable
+        ref={buttonRef}
         accessibilityLabel={accessibilityLabel}
         accessibilityRole="button"
-        accessibilityState={{ disabled }}
+        accessibilityState={{ disabled, expanded: Boolean(anchor) }}
+        collapsable={false}
         disabled={disabled}
+        hitSlop={8}
         onPress={present}
         style={({ pressed }) => [
           styles.pressable,
@@ -98,7 +122,7 @@ export function HeaderIconMenu({
           <GlassView
             colorScheme="auto"
             glassEffectStyle="regular"
-            isInteractive={!disabled}
+            isInteractive={false}
             style={styles.surface}
           >
             {icon}
@@ -118,26 +142,36 @@ export function HeaderIconMenu({
           </View>
         )}
       </Pressable>
-      {open ? (
-        <Modal
-          animationType="fade"
-          transparent
-          visible
-          onRequestClose={() => setOpen(false)}
-        >
-          <Pressable style={styles.backdrop} onPress={() => setOpen(false)}>
+      {anchor ? (
+        <Modal animationType="fade" transparent visible onRequestClose={close}>
+          <Pressable style={styles.backdrop} onPress={close}>
             <View
               style={[
-                styles.sheet,
-                { backgroundColor: colors.surface, borderColor: colors.border },
+                styles.menu,
+                {
+                  left: menuLeft,
+                  top: openDown ? menuTop : undefined,
+                  bottom: openDown ? undefined : windowHeight - anchor.y + 8,
+                  width: menuWidth,
+                  borderColor: colors.border,
+                },
+                !supportsGlass && { backgroundColor: colors.surface },
               ]}
             >
+              {supportsGlass ? (
+                <GlassView
+                  colorScheme="auto"
+                  glassEffectStyle="regular"
+                  style={StyleSheet.absoluteFill}
+                />
+              ) : null}
               {options.map((option) => (
                 <Pressable
                   key={option.label}
                   accessibilityRole="button"
+                  accessibilityState={{ selected: option.selected }}
                   onPress={() => {
-                    setOpen(false);
+                    close();
                     option.onPress();
                   }}
                   style={({ pressed }) => [
@@ -145,9 +179,35 @@ export function HeaderIconMenu({
                     pressed && styles.pressed,
                   ]}
                 >
-                  <Text style={[typography.headline, { color: colors.text }]}>
+                  {option.systemImage ? (
+                    <SymbolView
+                      fallback={null}
+                      name={option.systemImage}
+                      size={16}
+                      tintColor={colors.accent}
+                      weight="medium"
+                    />
+                  ) : null}
+                  <Text
+                    style={[
+                      typography.headline,
+                      styles.optionLabel,
+                      { color: colors.text },
+                    ]}
+                  >
                     {option.label}
                   </Text>
+                  {option.selected ? (
+                    <SymbolView
+                      fallback={<Text style={{ color: colors.accent }}>✓</Text>}
+                      name="checkmark"
+                      size={14}
+                      tintColor={colors.accent}
+                      weight="semibold"
+                    />
+                  ) : (
+                    <View style={styles.checkmarkSpacer} />
+                  )}
                 </Pressable>
               ))}
             </View>
@@ -170,21 +230,25 @@ const styles = StyleSheet.create({
   fallback: { borderWidth: 1 },
   pressed: { opacity: 0.65 },
   disabled: { opacity: 0.55 },
-  backdrop: {
-    backgroundColor: "rgba(0,0,0,0.28)",
-    flex: 1,
-    justifyContent: "flex-end",
-    padding: spacing.lg,
-  },
-  sheet: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
+  backdrop: { flex: 1 },
+  menu: {
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
     paddingVertical: spacing.xs,
+    position: "absolute",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
   },
   option: {
-    minHeight: 52,
-    justifyContent: "center",
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 44,
     paddingHorizontal: spacing.md,
   },
+  optionLabel: { flex: 1 },
+  checkmarkSpacer: { width: 14 },
 });

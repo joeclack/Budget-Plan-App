@@ -1,4 +1,5 @@
-import { Button, Host, Menu } from "@expo/ui/swift-ui";
+import { Host } from "@expo/ui";
+import { Button, Menu } from "@expo/ui/swift-ui";
 import {
   buttonBorderShape,
   buttonStyle,
@@ -32,7 +33,12 @@ export function PlanActionsMenu({
   const editingDisabled = busy || isLocked;
 
   return (
-    <Host matchContents colorScheme={colorScheme} seedColor={colors.accent}>
+    <Host
+      matchContents
+      colorScheme={colorScheme}
+      ignoreSafeArea="all"
+      seedColor={colors.accent}
+    >
       <Menu
         label="Actions"
         modifiers={[

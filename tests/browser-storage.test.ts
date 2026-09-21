@@ -108,6 +108,20 @@ function hasCode(code: string) {
     error instanceof BudgetStorageError && error.code === code;
 }
 
+test("browser preview keeps a group colour after reload", async () => {
+  const storage = new MemoryStorage();
+  const first = createBrowserRepository(storage);
+  const draft = document();
+  draft.groups[0].color = "ocean";
+  const saved = await first.saveMonth(draft);
+  assert.equal(saved.groups[0].color, "ocean");
+  assert.equal(
+    (await createBrowserRepository(storage).loadMonth(saved.month.id))!
+      .groups[0].color,
+    "ocean",
+  );
+});
+
 test("browser preview reopens saved budgets, templates and selected month", async () => {
   const storage = new MemoryStorage();
   const first = createBrowserRepository(storage);
@@ -333,9 +347,12 @@ test("month ordering, template replacement and invalid selection rejection survi
   await repository.saveGroupPresentation({
     income: { collapsed: true, sort: "date" },
   });
-  assert.deepEqual(await createBrowserRepository(storage).getGroupPresentation(), {
-    income: { collapsed: true, sort: "date" },
-  });
+  assert.deepEqual(
+    await createBrowserRepository(storage).getGroupPresentation(),
+    {
+      income: { collapsed: true, sort: "date" },
+    },
+  );
   assert.deepEqual(
     (await reopened.listTemplates()).map((item) => item.name),
     ["Updated template"],

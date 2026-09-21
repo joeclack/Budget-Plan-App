@@ -549,6 +549,20 @@ test("editing helpers reject destructive invalid references and bad reorder inpu
   assert.equal(value(evaluateBudget(unreferenced).groups.bills), 50000);
 });
 
+test("groups keep a curated colour when copied or saved as a template", () => {
+  const doc = sample();
+  doc.groups[0].color = "sky";
+  assertValidBudget(doc);
+  assert.equal(copyBudget(doc, 2026, 10).groups[0].color, "sky");
+  assert.equal(
+    createTemplate(doc, "Coloured").structure.groups[0].color,
+    "sky",
+  );
+  const invalid = sample();
+  (invalid.groups[0] as { color?: string }).color = "neon";
+  assert.throws(() => assertValidBudget(invalid), /colour/);
+});
+
 test("saved group presentation keeps only known sort and collapse values", () => {
   assert.deepEqual(readGroupPresentationMap(undefined), {});
   assert.deepEqual(

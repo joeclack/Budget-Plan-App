@@ -5,7 +5,7 @@ import {
   type SqlDatabase,
 } from "./sql";
 
-export const DATABASE_VERSION = 3;
+export const DATABASE_VERSION = 4;
 
 export async function migrateDatabase(db: SqlDatabase) {
   return serializeDatabase(db, async () => {
@@ -102,6 +102,10 @@ export async function migrateDatabase(db: SqlDatabase) {
       if (currentVersion < 3)
         await transaction.execAsync(
           "ALTER TABLE budget_rows ADD COLUMN due_day INTEGER CHECK (due_day BETWEEN 1 AND 31);",
+        );
+      if (currentVersion < 4)
+        await transaction.execAsync(
+          "ALTER TABLE budget_groups ADD COLUMN color TEXT CHECK (color IS NULL OR color IN ('sky', 'ocean', 'mint', 'sun', 'peach', 'rose', 'orchid', 'violet'));",
         );
       await assertForeignKeys(transaction);
       await transaction.execAsync(`PRAGMA user_version = ${DATABASE_VERSION};`);

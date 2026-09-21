@@ -1,5 +1,11 @@
+import { LinearGradient } from "expo-linear-gradient";
 import { SymbolView } from "expo-symbols";
-import { useEffect, useState, type PropsWithChildren, type ReactNode } from "react";
+import {
+  useEffect,
+  useState,
+  type PropsWithChildren,
+  type ReactNode,
+} from "react";
 import {
   AccessibilityInfo,
   Pressable,
@@ -16,6 +22,7 @@ import Animated, {
 } from "react-native-reanimated";
 
 import { Money } from "@/components/money";
+import type { GroupTone } from "@/theme/group-tone";
 import { radius, spacing, typography, useAppColors } from "@/theme/tokens";
 
 const collapseTiming = {
@@ -32,6 +39,7 @@ type SectionCardProps = PropsWithChildren<{
   subtitle?: string;
   title: string;
   titleAccessory?: ReactNode;
+  tone?: GroupTone;
   total?: number;
   totalContent?: ReactNode;
 }>;
@@ -46,6 +54,7 @@ export function SectionCard({
   subtitle,
   title,
   titleAccessory,
+  tone,
   total,
   totalContent,
 }: SectionCardProps) {
@@ -117,7 +126,10 @@ export function SectionCard({
       accessibilityRole="button"
       accessibilityState={{ expanded: !collapsed }}
       onPress={() => setCollapsed(!collapsed)}
-      style={({ pressed }) => [styles.titlePressable, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.titlePressable,
+        pressed && styles.pressed,
+      ]}
     >
       {titleLabel}
       <Animated.View style={chevronStyle}>
@@ -139,62 +151,90 @@ export function SectionCard({
     if (next > 0) setBodyHeight(next);
   }
 
+  const cardStyle = [
+    styles.card,
+    {
+      backgroundColor: tone ? "transparent" : colors.surface,
+      borderColor: tone?.border ?? colors.border,
+    },
+  ];
+  const contentStyle = [
+    styles.cardContent,
+    !showBody && !footer && styles.collapsedCard,
+  ];
+
   return (
-    <View
-      style={[
-        styles.card,
-        { backgroundColor: colors.surface, borderColor: colors.border },
-        !showBody && !footer && styles.collapsedCard,
-      ]}
-    >
-      <View
-        style={[
-          styles.header,
-          emphasizedHeader &&
-            showBody && [
-              styles.emphasizedHeader,
-              { borderBottomColor: colors.separator },
-            ],
-        ]}
-      >
-        <View style={styles.headerCopy}>
-          {collapseControl}
-          {subtitle ? (
-            <Text style={[styles.subtitle, { color: colors.secondaryText }]}>
-              {subtitle}
-            </Text>
-          ) : null}
+    <View style={cardStyle}>
+      {tone ? (
+        <View pointerEvents="none" style={styles.toneClip}>
+          <LinearGradient
+            colors={tone.colors}
+            dither
+            end={tone.end}
+            locations={tone.locations}
+            start={tone.start}
+            style={StyleSheet.absoluteFill}
+          />
+          <LinearGradient
+            colors={tone.sheen}
+            end={{ x: 0.9, y: 0.65 }}
+            start={{ x: 0.1, y: 0 }}
+            style={StyleSheet.absoluteFill}
+          />
         </View>
-        {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
+      ) : null}
+      <View style={contentStyle}>
+        <View
+          style={[
+            styles.header,
+            emphasizedHeader &&
+              showBody && [
+                styles.emphasizedHeader,
+                { borderBottomColor: colors.separator },
+              ],
+          ]}
+        >
+          <View style={styles.headerCopy}>
+            {collapseControl}
+            {subtitle ? (
+              <Text style={[styles.subtitle, { color: colors.secondaryText }]}>
+                {subtitle}
+              </Text>
+            ) : null}
+          </View>
+          {trailing ? <View style={styles.trailing}>{trailing}</View> : null}
+        </View>
+        {collapsible ? (
+          <>
+            {bodyHeight <= 0 ? (
+              <View
+                pointerEvents="none"
+                style={styles.measure}
+                onLayout={(event) =>
+                  measureBody(event.nativeEvent.layout.height)
+                }
+              >
+                {children}
+              </View>
+            ) : null}
+            <Animated.View
+              pointerEvents={collapsed ? "none" : "auto"}
+              style={bodyStyle}
+            >
+              <View
+                onLayout={(event) => {
+                  if (!collapsed) measureBody(event.nativeEvent.layout.height);
+                }}
+              >
+                {children}
+              </View>
+            </Animated.View>
+          </>
+        ) : (
+          <View>{children}</View>
+        )}
+        {footer}
       </View>
-      {collapsible ? (
-        <>
-          {bodyHeight <= 0 ? (
-            <View
-              pointerEvents="none"
-              style={styles.measure}
-              onLayout={(event) => measureBody(event.nativeEvent.layout.height)}
-            >
-              {children}
-            </View>
-          ) : null}
-          <Animated.View
-            pointerEvents={collapsed ? "none" : "auto"}
-            style={bodyStyle}
-          >
-            <View
-              onLayout={(event) => {
-                if (!collapsed) measureBody(event.nativeEvent.layout.height);
-              }}
-            >
-              {children}
-            </View>
-          </Animated.View>
-        </>
-      ) : (
-        <View>{children}</View>
-      )}
-      {footer}
     </View>
   );
 }
@@ -203,8 +243,15 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: radius.lg,
     borderWidth: 1,
+  },
+  cardContent: {
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
+  },
+  toneClip: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: radius.lg,
+    overflow: "hidden",
   },
   collapsedCard: { paddingBottom: spacing.sm },
   header: {
@@ -217,18 +264,24 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
     justifyContent: "center",
+    minWidth: 0,
+    overflow: "hidden",
     paddingRight: spacing.md,
   },
   trailing: {
     alignItems: "center",
     flexDirection: "row",
+    flexShrink: 0,
     justifyContent: "center",
+    zIndex: 1,
   },
   titlePressable: {
     alignItems: "center",
+    alignSelf: "flex-start",
     flexDirection: "row",
     flexShrink: 1,
     gap: spacing.xs,
+    maxWidth: "100%",
   },
   title: { ...typography.headline, flexShrink: 1 },
   pressed: { opacity: 0.65 },

@@ -279,9 +279,12 @@ test("group sort and collapse presentation survive reopening the database", asyn
   db.close();
   const reopened = open();
   await migrateDatabase(reopened);
-  assert.deepEqual(await createBudgetRepository(reopened).getGroupPresentation(), {
-    bills: { collapsed: true, sort: "amountAsc" },
-  });
+  assert.deepEqual(
+    await createBudgetRepository(reopened).getGroupPresentation(),
+    {
+      bills: { collapsed: true, sort: "amountAsc" },
+    },
+  );
 });
 
 test("an injected failure partway through a save rolls all month, group and row writes back", async (t) => {
@@ -408,6 +411,20 @@ test("foreign keys apply on the provider connection and are checked on isolated 
     await db.getFirstAsync("SELECT * FROM budget_groups WHERE id = 'orphan'"),
     null,
   );
+});
+
+test("group colours persist through save, copy and reopen", async (t) => {
+  const { repository } = await setup(t);
+  const document = fixture();
+  document.groups[0].color = "violet";
+  const saved = await repository.saveMonth(document);
+  assert.equal(saved.groups[0].color, "violet");
+  assert.equal(
+    (await repository.loadMonth(saved.month.id))!.groups[0].color,
+    "violet",
+  );
+  const copy = await repository.saveMonth(copyBudget(saved, 2026, 10));
+  assert.equal(copy.groups[0].color, "violet");
 });
 
 test("copied months and reusable templates remap references and remain independent after reopen", async (t) => {
@@ -626,8 +643,9 @@ test("version 1 upgrades preserve months, rules, pay data and settings", async (
   assert.equal(
     (await db.getFirstAsync<{ user_version: number }>("PRAGMA user_version"))
       ?.user_version,
-    3,
+    4,
   );
+  assert.equal(loaded.groups[0].color, undefined);
   assert.equal((await repository.saveMonth(loaded)).month.revision, 2);
 });
 

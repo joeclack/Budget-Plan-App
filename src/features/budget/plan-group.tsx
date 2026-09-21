@@ -1,8 +1,13 @@
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  useColorScheme,
+  View,
+} from "react-native";
 
 import { BudgetAmount } from "@/components/budget-amount";
-import { GroupActionsMenu } from "@/components/group-actions-menu";
-import { GroupSortMenu } from "@/components/group-sort-menu";
+import { GroupMenu } from "@/components/group-menu";
 import { SectionCard } from "@/components/section-card";
 import {
   describeRule,
@@ -14,6 +19,7 @@ import {
   type BudgetRow,
   type GroupRowSort,
 } from "@/domain/budget";
+import { groupTone } from "@/theme/group-tone";
 import { spacing, typography, useAppColors } from "@/theme/tokens";
 
 type PlanGroupProps = {
@@ -44,6 +50,8 @@ export function PlanGroup({
   sort,
 }: PlanGroupProps) {
   const colors = useAppColors();
+  const scheme = useColorScheme() === "dark" ? "dark" : "light";
+  const tone = groupTone(group.color, scheme);
   const rows = sortGroupRows(
     document.rows.filter((row) => row.groupId === group.id),
     evaluation.rows,
@@ -56,6 +64,7 @@ export function PlanGroup({
       collapsed={collapsed}
       collapsible
       emphasizedHeader
+      tone={tone}
       onCollapsedChange={onCollapsedChange}
       title={group.title}
       subtitle={
@@ -66,17 +75,15 @@ export function PlanGroup({
         }[group.classification]
       }
       titleAccessory={
-        <View style={styles.headerActions}>
-          <GroupSortMenu onSort={onSortChange} />
-          {!document.month.isLocked ? (
-            <GroupActionsMenu
-              busy={busy}
-              groupTitle={group.title}
-              onAddRow={onAddRow}
-              onEditGroup={onEditGroup}
-            />
-          ) : null}
-        </View>
+        <GroupMenu
+          busy={busy}
+          canEdit={!document.month.isLocked}
+          groupTitle={group.title}
+          sort={sort}
+          onAddRow={onAddRow}
+          onEditGroup={onEditGroup}
+          onSort={onSortChange}
+        />
       }
       footer={
         <View
@@ -89,10 +96,7 @@ export function PlanGroup({
           ]}
         >
           <Text style={[styles.totalLabel, { color: colors.text }]}>Total</Text>
-          <BudgetAmount
-            result={evaluation.groups[group.id]}
-            variant="strong"
-          />
+          <BudgetAmount result={evaluation.groups[group.id]} variant="strong" />
         </View>
       }
     >
@@ -152,11 +156,6 @@ const styles = StyleSheet.create({
   rowDetail: typography.caption,
   pressed: { opacity: 0.65 },
   emptyGroup: { ...typography.body, paddingVertical: spacing.md },
-  headerActions: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.xs,
-  },
   totalRow: {
     alignItems: "center",
     flexDirection: "row",

@@ -1,3 +1,4 @@
+import { isGroupColor } from "./color";
 import type {
   AmountRule,
   BudgetDocument,
@@ -145,6 +146,8 @@ export function assertBudgetShape(
       !["income", "expense", "saving"].includes(group.classification as string)
     )
       fail("Unknown group classification.");
+    if (group.color != null && !isGroupColor(group.color))
+      fail("Unknown group colour.");
     integer(group.sortOrder, "Group order", 0);
   }
   for (const value of doc.rows) {

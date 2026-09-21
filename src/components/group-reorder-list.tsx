@@ -1,5 +1,9 @@
 import { SymbolView } from "expo-symbols";
-import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
+import {
+  Gesture,
+  GestureDetector,
+  GestureHandlerRootView,
+} from "react-native-gesture-handler";
 import Animated, {
   runOnJS,
   useAnimatedStyle,
@@ -7,9 +11,10 @@ import Animated, {
   withTiming,
   type SharedValue,
 } from "react-native-reanimated";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, useColorScheme, View } from "react-native";
 
 import type { BudgetGroup } from "@/domain/budget";
+import { groupTone } from "@/theme/group-tone";
 import { radius, spacing, typography, useAppColors } from "@/theme/tokens";
 
 const rowHeight = 56;
@@ -77,6 +82,10 @@ function ReorderRow({
   onDragStart?: () => void;
   onReorder: (from: number, to: number) => void;
 }) {
+  const tone = groupTone(
+    group.color,
+    useColorScheme() === "dark" ? "dark" : "light",
+  );
   function finishDrag(from: number, offset: number) {
     const to = Math.max(
       0,
@@ -127,7 +136,9 @@ function ReorderRow({
       if (from > to && index >= to && index < from) shift = rowHeight;
     }
     return {
-      transform: [{ translateY: withTiming(resting + shift, { duration: 160 }) }],
+      transform: [
+        { translateY: withTiming(resting + shift, { duration: 160 }) },
+      ],
       zIndex: 0,
       shadowOpacity: 0,
       elevation: 0,
@@ -149,7 +160,12 @@ function ReorderRow({
           style,
         ]}
       >
-        <Text style={[styles.title, { color: colors.text }]}>{group.title}</Text>
+        {tone ? (
+          <View style={[styles.swatch, { backgroundColor: tone.swatch }]} />
+        ) : null}
+        <Text style={[styles.title, { color: colors.text }]}>
+          {group.title}
+        </Text>
         <SymbolView
           fallback={<Text style={{ color: colors.secondaryText }}>≡</Text>}
           name="line.3.horizontal"
@@ -177,6 +193,12 @@ const styles = StyleSheet.create({
     top: 0,
     shadowOffset: { width: 0, height: 4 },
     shadowRadius: 10,
+    gap: spacing.sm,
   },
-  title: typography.headline,
+  swatch: {
+    borderRadius: radius.pill,
+    height: 10,
+    width: 10,
+  },
+  title: { ...typography.headline, flex: 1 },
 });

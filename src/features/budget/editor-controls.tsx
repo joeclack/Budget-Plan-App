@@ -12,8 +12,6 @@ import {
   View,
 } from "react-native";
 import { GlassButton } from "@/components/glass-button";
-import { evaluateBudget, formatMinor } from "@/domain/budget";
-import type { BudgetDocument } from "@/domain/budget";
 import { radius, spacing, typography, useAppColors } from "@/theme/tokens";
 
 export function EditorSheet({
@@ -223,77 +221,6 @@ export function Action({
   );
 }
 
-export function DraftPreview({
-  original,
-  draft,
-  error,
-}: {
-  original: BudgetDocument;
-  draft: BudgetDocument | null;
-  error: string | null;
-}) {
-  const colors = useAppColors();
-  const before = evaluateBudget(original);
-  const after = draft ? evaluateBudget(draft) : null;
-  const changed =
-    draft?.rows.filter((row) => {
-      const a = before.rows[row.id];
-      const b = after?.rows[row.id];
-      return b?.ok && (!a?.ok || a.amountMinor !== b.amountMinor);
-    }) ?? [];
-  return (
-    <View
-      style={[editorStyles.preview, { backgroundColor: colors.accentSoft }]}
-    >
-      <Heading>Preview · this month only</Heading>
-      {error ? <Text style={{ color: colors.text }}>{error}</Text> : null}
-      {after ? (
-        <>
-          {(
-            [
-              ["Income", after.income],
-              ["Allocated", after.allocated],
-              ["Left to plan", after.leftToPlan],
-            ] as const
-          ).map(([label, result]) => (
-            <Text
-              key={label}
-              style={[typography.callout, { color: colors.text }]}
-            >
-              {label}:{" "}
-              {result.ok
-                ? formatMinor(result.amountMinor)
-                : result.error.message}
-            </Text>
-          ))}
-          {after.leftToPlan.ok && before.leftToPlan.ok ? (
-            <Note>
-              Previously left to plan:{" "}
-              {formatMinor(before.leftToPlan.amountMinor)}
-            </Note>
-          ) : null}
-          {changed.map((row) => {
-            const result = after.rows[row.id];
-            return (
-              <Note key={row.id}>
-                {row.label}:{" "}
-                {result.ok
-                  ? formatMinor(result.amountMinor)
-                  : result.error.message}
-              </Note>
-            );
-          })}
-        </>
-      ) : (
-        <Note>Complete the fields to see the updated totals.</Note>
-      )}
-      <Note>
-        Nothing changes until you save. Existing templates stay as they are.
-      </Note>
-    </View>
-  );
-}
-
 export const editorStyles = StyleSheet.create({
   header: {
     flexDirection: "row",
@@ -322,5 +249,4 @@ export const editorStyles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: radius.md,
   },
-  preview: { padding: spacing.md, borderRadius: radius.md, gap: spacing.sm },
 });
