@@ -30,6 +30,15 @@ export function validatePayProfile(profile: PayProfile) {
     profile.pensionRateBps > 10_000
   )
     throw new Error("Pension contribution must be between 0% and 100%.");
+  const employerPensionRateBps = profile.employerPensionRateBps ?? 0;
+  if (
+    !Number.isInteger(employerPensionRateBps) ||
+    employerPensionRateBps < 0 ||
+    employerPensionRateBps > 10_000
+  )
+    throw new Error(
+      "Employer pension contribution must be between 0% and 100%.",
+    );
   if (!(profile.taxYear in PAY_RULES)) throw new Error("Unsupported tax year.");
   if (!["england", "wales", "northern_ireland"].includes(profile.country))
     throw new Error(
@@ -116,6 +125,12 @@ export function calculatePay(
     rulesetVersion: rules.version,
     calculatedAt,
   };
+}
+
+export function monthlyEmployerPensionMinor(profile: PayProfile) {
+  return monthly(
+    percent(profile.annualSalaryMinor, profile.employerPensionRateBps ?? 0),
+  );
 }
 
 export const PAY_LIMIT_MINOR = MAX_SALARY_MINOR;

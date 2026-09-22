@@ -1,11 +1,94 @@
+import { LinearGradient } from "expo-linear-gradient";
+import { SymbolView } from "expo-symbols";
 import { useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  useColorScheme,
+  View,
+} from "react-native";
 
-import type { BudgetDocument, BudgetTemplate } from "../../domain/budget";
+import type {
+  BudgetDocument,
+  BudgetGroup,
+  BudgetTemplate,
+} from "../../domain/budget";
+import { groupTone } from "../../theme/group-tone";
 import { radius, spacing, typography, useAppColors } from "../../theme/tokens";
 import { Action, EditorSheet, Field, Heading, Note } from "./editor-controls";
 
 type Mode = "list" | "edit" | "replace" | "delete";
+
+const classificationLabel = {
+  income: "Income",
+  expense: "Spending",
+  saving: "Saving",
+} as const;
+
+function sortedGroups(template: BudgetTemplate) {
+  return [...template.structure.groups].sort(
+    (a, b) => a.sortOrder - b.sortOrder,
+  );
+}
+
+function groupRowCount(template: BudgetTemplate, group: BudgetGroup) {
+  return template.structure.rows.filter((row) => row.groupId === group.id)
+    .length;
+}
+
+function TemplateGroups({ template }: { template: BudgetTemplate }) {
+  const colors = useAppColors();
+  const scheme = useColorScheme() === "dark" ? "dark" : "light";
+  const groups = sortedGroups(template);
+  if (!groups.length) return <Note>No groups in this template.</Note>;
+  return (
+    <View style={styles.groups}>
+      {groups.map((group) => {
+        const rows = groupRowCount(template, group);
+        const tone = groupTone(group.color, scheme);
+        return (
+          <View
+            key={group.id}
+            style={[
+              styles.group,
+              {
+                backgroundColor: tone ? "transparent" : colors.surface,
+                borderColor: tone?.border ?? colors.border,
+              },
+            ]}
+          >
+            {tone ? (
+              <View pointerEvents="none" style={styles.groupTone}>
+                <LinearGradient
+                  colors={tone.colors}
+                  dither
+                  end={tone.end}
+                  locations={tone.locations}
+                  start={tone.start}
+                  style={StyleSheet.absoluteFill}
+                />
+                <LinearGradient
+                  colors={tone.sheen}
+                  end={{ x: 0.9, y: 0.65 }}
+                  start={{ x: 0.1, y: 0 }}
+                  style={StyleSheet.absoluteFill}
+                />
+              </View>
+            ) : null}
+            <Text style={[styles.groupTitle, { color: colors.text }]}>
+              {group.title}
+            </Text>
+            <Text style={[styles.groupDetail, { color: colors.secondaryText }]}>
+              {classificationLabel[group.classification]} · {rows}{" "}
+              {rows === 1 ? "row" : "rows"}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
 
 export function TemplateManager({
   templates,
@@ -61,7 +144,12 @@ export function TemplateManager({
   }
 
   return (
-    <EditorSheet title="Manage templates" busy={busy} onClose={onClose}>
+    <EditorSheet
+      title="Manage templates"
+      busy={busy}
+      dismissLabel={currentMode === "list" ? "Close" : "Back"}
+      onClose={currentMode === "list" ? onClose : back}
+    >
       {currentMode === "list" ? (
         <>
           <Heading>
@@ -70,33 +158,34 @@ export function TemplateManager({
           </Heading>
           {templates.length ? (
             templates.map((template) => (
-              <View
+              <Pressable
                 key={template.id}
-                style={[
+                accessibilityLabel={`Manage template ${template.name}`}
+                accessibilityRole="button"
+                disabled={busy}
+                onPress={() => edit(template)}
+                style={({ pressed }) => [
                   styles.template,
                   {
                     backgroundColor: colors.background,
                     borderColor: colors.border,
                   },
+                  pressed && styles.pressed,
                 ]}
               >
-                <View style={styles.copy}>
-                  <Text style={[styles.name, { color: colors.text }]}>
-                    {template.name}
-                  </Text>
-                  <Note>
-                    {template.structure.groups.length} groups ·{" "}
-                    {template.structure.rows.length} rows
-                  </Note>
-                </View>
-                <Action
-                  label="Manage"
-                  accessibilityLabel={`Manage template ${template.name}`}
-                  compact
-                  disabled={busy}
-                  onPress={() => edit(template)}
+                <Text style={[styles.name, { color: colors.text }]}>
+                  {template.name}
+                </Text>
+                <SymbolView
+                  fallback={
+                    <Text style={{ color: colors.secondaryText }}>›</Text>
+                  }
+                  name="chevron.right"
+                  size={14}
+                  tintColor={colors.secondaryText}
+                  weight="semibold"
                 />
-              </View>
+              </Pressable>
             ))
           ) : (
             <Note>
@@ -107,20 +196,16 @@ export function TemplateManager({
         </>
       ) : selected ? (
         <>
-          <Action label="Back to templates" disabled={busy} onPress={back} />
           {currentMode === "edit" ? (
             <>
               <Field
                 label="Template name"
                 value={name}
                 onChange={setName}
-                autoFocus
                 disabled={busy}
               />
-              <Note>
-                {selected.structure.groups.length} groups ·{" "}
-                {selected.structure.rows.length} rows
-              </Note>
+              <Heading>Groups</Heading>
+              <TemplateGroups template={selected} />
               <Action
                 label="Save name"
                 prominent
@@ -198,6 +283,22 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     padding: spacing.md,
   },
-  copy: { flex: 1, gap: spacing.xs },
-  name: typography.headline,
+  name: { ...typography.headline, flex: 1 },
+  groups: { gap: spacing.sm },
+  group: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 2,
+    overflow: "hidden",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  groupTone: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: radius.md,
+    overflow: "hidden",
+  },
+  groupTitle: typography.callout,
+  groupDetail: typography.caption,
+  pressed: { opacity: 0.65 },
 });

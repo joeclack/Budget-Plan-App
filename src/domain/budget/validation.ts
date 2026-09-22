@@ -124,6 +124,8 @@ export function assertBudgetShape(
   timestamp(month.createdAt, "Month creation date");
   timestamp(month.updatedAt, "Month update date");
   integer(month.revision, "Month revision", 0);
+  if (month.templateId !== undefined && month.templateId !== null)
+    string(month.templateId, "Template ID");
   if (!Array.isArray(doc.groups) || !Array.isArray(doc.rows))
     fail("Groups and rows must be arrays.");
   if (doc.groups.length > 1000 || doc.rows.length > 10000)
@@ -164,6 +166,11 @@ export function assertBudgetShape(
       row.allocationRole !== "informational"
     )
       fail("Unknown row allocation role.");
+    if (row.actualMinor !== undefined && row.actualMinor !== null) {
+      if (row.allocationRole !== "allocation")
+        fail("Display-only rows cannot record an actual amount.");
+      integer(row.actualMinor, "Actual amount", -Number.MAX_SAFE_INTEGER);
+    }
     integer(row.sortOrder, "Row order", 0);
     assertRule(row.rule);
   }

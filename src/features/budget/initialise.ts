@@ -1,5 +1,9 @@
 import type { BudgetRepository } from "../../db/repository";
-import type { GroupPresentationMap } from "../../domain/budget";
+import {
+  copyBudget,
+  missingCurrentMonth,
+  type GroupPresentationMap,
+} from "../../domain/budget";
 import type {
   BudgetDocument,
   BudgetMonth,
@@ -12,6 +16,7 @@ export type BudgetState = {
   templates: BudgetTemplate[];
   period: { year: number; month: number };
   groupPresentation: GroupPresentationMap;
+  autoApplyRecentMonth: boolean;
 };
 
 const pending = new WeakMap<BudgetRepository, Promise<BudgetState>>();
@@ -19,22 +24,44 @@ const pending = new WeakMap<BudgetRepository, Promise<BudgetState>>();
 /** Concurrent mounts share one open operation. A new installation starts empty. */
 export function initialiseBudget(
   repository: BudgetRepository,
+  now = new Date(),
 ): Promise<BudgetState> {
   const existing = pending.get(repository);
   if (existing) return existing;
-  const task = openBudget(repository).finally(() => pending.delete(repository));
+  const task = openBudget(repository, now).finally(() =>
+    pending.delete(repository),
+  );
   pending.set(repository, task);
   return task;
 }
 
-async function openBudget(repository: BudgetRepository): Promise<BudgetState> {
+async function openBudget(
+  repository: BudgetRepository,
+  now: Date,
+): Promise<BudgetState> {
   await repository.removeDemoData();
-  const months = await repository.listMonths();
+  let months = await repository.listMonths();
+  const autoApplyRecentMonth = await repository.getAutoApplyRecentMonth();
+  const applied = await applyRecentMonthIfDue(
+    repository,
+    months,
+    autoApplyRecentMonth,
+    now,
+  );
+  if (applied) {
+    months = [
+      applied.month,
+      ...months.filter((month) => month.id !== applied.month.id),
+    ].sort((a, b) => b.year - a.year || b.month - a.month);
+  }
   const selectedId = await repository.getSelectedMonthId();
-  let document = selectedId ? await repository.loadMonth(selectedId) : null;
+  let document = applied
+    ? applied
+    : selectedId
+      ? await repository.loadMonth(selectedId)
+      : null;
   if (!document && months.length)
     document = await repository.loadMonth(months[0].id);
-  const now = new Date();
   if (document) await repository.setSelectedMonthId(document.month.id);
   return {
     document,
@@ -46,5 +73,20 @@ async function openBudget(repository: BudgetRepository): Promise<BudgetState> {
     groupPresentation: await repository
       .getGroupPresentation()
       .catch(() => ({})),
+    autoApplyRecentMonth,
   };
+}
+
+async function applyRecentMonthIfDue(
+  repository: BudgetRepository,
+  months: BudgetMonth[],
+  enabled: boolean,
+  now: Date,
+) {
+  if (!enabled) return null;
+  const missing = missingCurrentMonth(months, now);
+  if (!missing?.source) return null;
+  const source = await repository.loadMonth(missing.source.id);
+  if (!source) return null;
+  return repository.saveMonth(copyBudget(source, missing.year, missing.month));
 }

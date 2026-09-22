@@ -6,7 +6,12 @@ import {
   scheduledPayments,
   upcomingPayments,
 } from "../src/domain/budget";
-import { calculatePay, validatePayProfile } from "../src/domain/pay";
+import {
+  calculatePay,
+  currentTaxYear,
+  monthlyEmployerPensionMinor,
+  validatePayProfile,
+} from "../src/domain/pay";
 import type { PayProfile, PensionMethod } from "../src/domain/pay";
 import { createBudgetFixture } from "./budget-fixture";
 
@@ -19,6 +24,7 @@ function profile(
     id: "primary",
     annualSalaryMinor: salary,
     pensionRateBps: rate,
+    employerPensionRateBps: 0,
     pensionMethod: method,
     pensionBasis: "whole_salary",
     country: "england",
@@ -64,6 +70,39 @@ test("allowance taper, higher tax and monthly NI thresholds reconcile at represe
   assert.equal(result.monthlyTakeHomeMinor, 634650);
   const threshold = calculatePay(profile("net_pay", 1_258_320, 0));
   assert.equal(threshold.monthlyNationalInsuranceMinor, 5);
+});
+
+test("employer pension does not change take-home pay", () => {
+  const employee = calculatePay(profile("net_pay"));
+  const withEmployer = calculatePay({
+    ...profile("net_pay"),
+    employerPensionRateBps: 800,
+  });
+  assert.equal(
+    withEmployer.monthlyTakeHomeMinor,
+    employee.monthlyTakeHomeMinor,
+  );
+  assert.equal(
+    monthlyEmployerPensionMinor({
+      ...profile("net_pay"),
+      employerPensionRateBps: 800,
+    }),
+    32000,
+  );
+  assert.throws(
+    () =>
+      validatePayProfile({
+        ...profile("net_pay"),
+        employerPensionRateBps: 10001,
+      }),
+    /Employer pension/,
+  );
+});
+
+test("current UK tax year starts on 6 April and falls back to a known ruleset", () => {
+  assert.equal(currentTaxYear(new Date(2026, 3, 6)), "2026/27");
+  assert.equal(currentTaxYear(new Date(2026, 3, 5)), "2025/26");
+  assert.equal(currentTaxYear(new Date(2028, 8, 1)), "2026/27");
 });
 
 test("unsupported or out-of-range pay inputs fail explicitly", () => {

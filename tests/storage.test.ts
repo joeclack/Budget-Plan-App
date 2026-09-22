@@ -5,6 +5,10 @@ import { join, resolve, sep } from "node:path";
 import test, { type TestContext } from "node:test";
 
 import {
+  parseBudgetArchive,
+  serializeBudgetArchive,
+} from "../src/domain/backup";
+import {
   copyBudget,
   createTemplate,
   evaluateBudget,
@@ -16,6 +20,7 @@ import {
   BudgetStorageError,
   createBudgetRepository,
 } from "../src/db/repository";
+import { initialiseBudget } from "../src/features/budget/initialise";
 import { assertForeignKeys, inTransaction } from "../src/db/sql";
 import { openTestDatabase } from "./sqlite-adapter";
 import { calculatePay } from "../src/domain/pay";
@@ -138,6 +143,7 @@ test("pay profiles persist and applying an estimate saves the row and snapshot a
     id: "primary",
     annualSalaryMinor: 4_800_000,
     pensionRateBps: 500,
+    employerPensionRateBps: 0,
     pensionMethod: "net_pay",
     pensionBasis: "whole_salary",
     country: "england",
@@ -481,7 +487,9 @@ test("template deletion checks its version and leaves created months intact", as
   );
   await repository.deleteTemplate(updated.id, updated.updatedAt);
   assert.equal(await repository.loadTemplate(updated.id), null);
-  assert.deepEqual(await repository.loadMonth(created.month.id), created);
+  const remaining = structuredClone(created);
+  delete remaining.month.templateId;
+  assert.deepEqual(await repository.loadMonth(created.month.id), remaining);
   await assert.rejects(
     repository.deleteTemplate(updated.id, updated.updatedAt),
     hasCode("NOT_FOUND"),
@@ -641,10 +649,20 @@ test("version 1 upgrades preserve months, rules, pay data and settings", async (
     "whole_salary",
   );
   assert.equal(
+    (
+      await db.getFirstAsync<{ employer_pension_rate_bps: number }>(
+        "SELECT employer_pension_rate_bps FROM pay_profiles",
+      )
+    )?.employer_pension_rate_bps,
+    0,
+  );
+  assert.equal(
     (await db.getFirstAsync<{ user_version: number }>("PRAGMA user_version"))
       ?.user_version,
-    4,
+    7,
   );
+  assert.equal(loaded.month.templateId, undefined);
+  assert.equal(loaded.rows[0].actualMinor, null);
   assert.equal(loaded.groups[0].color, undefined);
   assert.equal((await repository.saveMonth(loaded)).month.revision, 2);
 });
@@ -724,4 +742,178 @@ test("invalid dependency removal and malformed JSON rules never replace saved da
   };
   await assert.rejects(repository.saveMonth(malformed));
   assert.deepEqual(await repository.loadMonth(saved.month.id), saved);
+});
+
+test("a version 5 database gains template_id on the next write", async (t) => {
+  const { db, repository } = await setup(t);
+  await db.execAsync("ALTER TABLE budget_months DROP COLUMN template_id");
+  await db.execAsync("PRAGMA user_version = 5");
+  const saved = await repository.saveMonth(fixture());
+  assert.equal(saved.month.revision, 1);
+  const columns = await db.getAllAsync<{ name: string }>(
+    "PRAGMA table_info(budget_months)",
+  );
+  assert.ok(columns.some((column) => column.name === "template_id"));
+});
+
+test("a month remembers the template it was saved to, including when locked", async (t) => {
+  const { open, repository } = await setup(t);
+  const saved = await repository.saveMonth(fixture());
+  const template = await repository.saveTemplate(
+    createTemplate(saved, "Usual"),
+  );
+  const linked = await repository.setMonthTemplateId(
+    saved.month.id,
+    saved.month.revision,
+    template.id,
+  );
+  assert.equal(linked.month.templateId, template.id);
+  const locked = await repository.setMonthLocked(
+    linked.month.id,
+    linked.month.revision,
+    true,
+  );
+  const relinked = await repository.setMonthTemplateId(
+    locked.month.id,
+    locked.month.revision,
+    template.id,
+  );
+  assert.equal(relinked.month.templateId, template.id);
+  assert.equal(relinked.month.isLocked, true);
+  assert.equal(
+    (await createBudgetRepository(open()).loadMonth(relinked.month.id))!.month
+      .templateId,
+    template.id,
+  );
+});
+
+test("recorded actuals survive save and reopen and stay out of copies", async (t) => {
+  const { open, repository } = await setup(t);
+  const saved = await repository.saveMonth(fixture());
+  saved.rows[1].actualMinor = 100000;
+  const recorded = await repository.saveMonth(saved);
+  assert.equal(recorded.rows[1].actualMinor, 100000);
+  assert.equal(
+    evaluateBudget(recorded).remainingRows[recorded.rows[1].id]?.ok,
+    true,
+  );
+  const reopened = createBudgetRepository(open());
+  assert.equal(
+    (await reopened.loadMonth(recorded.month.id))!.rows[1].actualMinor,
+    100000,
+  );
+});
+
+test("a backup replaces every saved budget and an invalid file changes nothing", async (t) => {
+  const { db, open, repository } = await setup(t);
+  const initial = await repository.saveMonth(fixture());
+  const profile: PayProfile = {
+    id: "primary",
+    annualSalaryMinor: 4_800_000,
+    pensionRateBps: 500,
+    employerPensionRateBps: 300,
+    pensionMethod: "salary_sacrifice",
+    pensionBasis: "whole_salary",
+    country: "wales",
+    taxYear: "2026/27",
+    updatedAt: "2026-09-21T00:00:00.000Z",
+  };
+  const storedProfile = await repository.savePayProfile(profile);
+  const calculatedAt = "2026-09-21T12:00:00.000Z";
+  const result = calculatePay(storedProfile, calculatedAt);
+  initial.rows[0].rule = {
+    kind: "fixed",
+    amountMinor: result.monthlyTakeHomeMinor,
+  };
+  const applied = await repository.saveMonth(initial, {
+    id: "pay-snapshot",
+    budgetRowId: initial.rows[0].id,
+    inputs: storedProfile,
+    result,
+    rulesetVersion: result.rulesetVersion,
+    calculatedAt,
+  });
+  const locked = await repository.setMonthLocked(
+    applied.month.id,
+    applied.month.revision,
+    true,
+  );
+  await repository.setSelectedMonthId(locked.month.id);
+  await repository.saveGroupPresentation({
+    [locked.groups[0].id]: { collapsed: true, sort: "amountDesc" },
+  });
+  await repository.saveTemplate(createTemplate(locked, "Household"));
+  const exported = await repository.exportStore();
+  const parsed = parseBudgetArchive(serializeBudgetArchive(exported));
+  await repository.saveMonth(fixture("october", 10));
+  await assert.rejects(
+    repository.restoreStore(
+      JSON.parse('{"format":"budget-plan-backup","version":2}'),
+    ),
+    /newer version/,
+  );
+  assert.equal((await repository.listMonths()).length, 2);
+
+  await repository.restoreStore(parsed);
+  const restored = (await repository.loadMonth(locked.month.id))!;
+  assert.equal(restored.month.isLocked, true);
+  assert.equal(restored.month.revision, locked.month.revision);
+  assert.deepEqual(restored.rows, locked.rows);
+  assert.equal((await repository.listMonths()).length, 1);
+  assert.equal(await repository.getSelectedMonthId(), locked.month.id);
+  assert.deepEqual(await repository.getPayProfile(), storedProfile);
+  assert.equal((await repository.listTemplates()).length, 1);
+  assert.deepEqual(await repository.getGroupPresentation(), {
+    [locked.groups[0].id]: { collapsed: true, sort: "amountDesc" },
+  });
+  assert.equal(await repository.getAutoApplyRecentMonth(), false);
+  assert.equal(
+    (
+      await db.getFirstAsync<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM pay_estimate_snapshots",
+      )
+    )?.count,
+    1,
+  );
+  await assert.rejects(repository.saveMonth(restored), hasCode("LOCKED"));
+
+  db.close();
+  const reopened = createBudgetRepository(open());
+  const again = await reopened.exportStore();
+  assert.deepEqual(
+    { ...again, exportedAt: parsed.exportedAt },
+    { ...parsed, exportedAt: parsed.exportedAt },
+  );
+});
+
+test("copying last month forward creates the current month when the setting is on", async (t) => {
+  const { repository } = await setup(t);
+  const now = new Date(2026, 9, 2);
+  await repository.saveMonth(fixture());
+  const closed = await initialiseBudget(repository, now);
+  assert.equal(closed.autoApplyRecentMonth, false);
+  assert.equal(
+    closed.months.some((month) => month.year === 2026 && month.month === 10),
+    false,
+  );
+  await repository.setAutoApplyRecentMonth(true);
+  const opened = await initialiseBudget(repository, now);
+  assert.equal(opened.autoApplyRecentMonth, true);
+  assert.equal(opened.document?.month.year, 2026);
+  assert.equal(opened.document?.month.month, 10);
+  assert.equal(
+    opened.document?.rows.find((row) => row.label === "Salary")?.rule.kind,
+    "fixed",
+  );
+  const salary = opened.document?.rows.find((row) => row.label === "Salary");
+  assert.equal(
+    salary?.rule.kind === "fixed" && salary.rule.amountMinor,
+    342000,
+  );
+  assert.equal(await repository.getAutoApplyRecentMonth(), true);
+  const exported = await repository.exportStore();
+  assert.equal(exported.autoApplyRecentMonth, true);
+  await repository.setAutoApplyRecentMonth(false);
+  await repository.restoreStore(exported);
+  assert.equal(await repository.getAutoApplyRecentMonth(), true);
 });

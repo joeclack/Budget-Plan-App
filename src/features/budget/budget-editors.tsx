@@ -27,6 +27,8 @@ import {
   Field,
   Heading,
   Note,
+  SegmentedSelect,
+  Select,
   editorStyles,
 } from "./editor-controls";
 
@@ -90,22 +92,22 @@ export function GroupEditor(
         autoFocus={!props.group}
         disabled={props.busy}
       />
-      <Choices
+      <SegmentedSelect
         label="Group type"
         value={classification}
         options={classifications}
         onChange={setClassification}
         disabled={props.busy}
       />
+      <Note>
+        Income adds money to the plan. Spending and savings reduce what is left
+        to plan.
+      </Note>
       <GroupColorPicker
         disabled={props.busy}
         onChange={setColor}
         value={color}
       />
-      <Note>
-        Income adds money to the plan. Spending and savings reduce what is left
-        to plan.
-      </Note>
       {name.trim() && preview.error ? <Note>{preview.error}</Note> : null}
       {props.error ? <Note>{props.error}</Note> : null}
       <Action
@@ -137,6 +139,9 @@ export function RowEditor(
   const [label, setLabel] = useState(row?.label ?? "");
   const [notes, setNotes] = useState(row?.notes ?? "");
   const [dueDay, setDueDay] = useState(row?.dueDay ? String(row.dueDay) : "");
+  const [actual, setActual] = useState(
+    row?.actualMinor != null ? amountInput(row.actualMinor) : "",
+  );
   const [groupId, setGroupId] = useState(row?.groupId ?? props.groupId);
   const [kind, setKind] = useState<AmountRule["kind"]>(
     row?.rule.kind ?? "fixed",
@@ -189,6 +194,8 @@ export function RowEditor(
         label,
         notes,
         dueDay: dueDay.trim() === "" ? null : parseDueDay(dueDay),
+        actualMinor:
+          role === "allocation" && actual.trim() ? parseMoney(actual) : null,
         groupId,
         rule,
         allocationRole: role,
@@ -209,7 +216,16 @@ export function RowEditor(
         autoFocus={!row}
         disabled={props.busy}
       />
-      <Choices
+      {kind === "fixed" ? (
+        <Field
+          label="Amount in pounds"
+          value={fixed}
+          onChange={setFixed}
+          numeric
+          disabled={props.busy}
+        />
+      ) : null}
+      <Select
         label="Group"
         value={groupId}
         options={props.document.groups.map((group) => ({
@@ -219,7 +235,7 @@ export function RowEditor(
         onChange={setGroupId}
         disabled={props.busy}
       />
-      <Choices
+      <Select
         label="Amount rule"
         value={kind}
         options={[
@@ -234,15 +250,6 @@ export function RowEditor(
         }}
         disabled={props.busy}
       />
-      {kind === "fixed" ? (
-        <Field
-          label="Amount in pounds"
-          value={fixed}
-          onChange={setFixed}
-          numeric
-          disabled={props.busy}
-        />
-      ) : null}
       {kind === "percentage" ? (
         <>
           <Field
@@ -265,22 +272,16 @@ export function RowEditor(
         </>
       ) : null}
       {kind === "groupTotal" ? (
-        <>
-          <Choices
-            label="Total of group"
-            value={totalGroup}
-            options={props.document.groups.map((group) => ({
-              value: group.id,
-              label: group.title,
-            }))}
-            onChange={setTotalGroup}
-            disabled={props.busy}
-          />
-          <Note>
-            Group totals start as display-only rows so the same money is not
-            counted twice.
-          </Note>
-        </>
+        <Choices
+          label="Total of group"
+          value={totalGroup}
+          options={props.document.groups.map((group) => ({
+            value: group.id,
+            label: group.title,
+          }))}
+          onChange={setTotalGroup}
+          disabled={props.busy}
+        />
       ) : null}
       {kind === "expression" ? (
         <>
@@ -291,11 +292,6 @@ export function RowEditor(
             multiline
             disabled={props.busy}
           />
-          <Note>
-            Use +, −, *, / and brackets. Numbers are pounds or multipliers, for
-            example ([Salary · Income] - 500) * 0.1. Insert your own references
-            below.
-          </Note>
           <View style={editorStyles.wrap}>
             {["+", "-", "*", "/", "(", ")"].map((operator) => (
               <Action
@@ -328,7 +324,7 @@ export function RowEditor(
             : null}
         </>
       ) : null}
-      <Choices
+      <Select
         label="Count in budget"
         value={role}
         options={[
@@ -342,6 +338,15 @@ export function RowEditor(
         Display-only rows show a calculated figure without adding it to the
         group or monthly totals.
       </Note>
+      {role === "allocation" ? (
+        <Field
+          label="Actual amount (optional)"
+          value={actual}
+          onChange={setActual}
+          numeric
+          disabled={props.busy}
+        />
+      ) : null}
       <Field
         label="Payment day (optional)"
         value={dueDay}
@@ -349,9 +354,6 @@ export function RowEditor(
         numeric
         disabled={props.busy}
       />
-      <Note>
-        Use a day from 1 to 31. In a shorter month it appears on the last day.
-      </Note>
       <Field
         label="Notes (optional)"
         value={notes}

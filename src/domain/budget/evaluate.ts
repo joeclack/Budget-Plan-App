@@ -7,6 +7,7 @@ import type {
   BudgetReference,
   BudgetTemplate,
   CalculationError,
+  Classification,
   Expression,
 } from "./types";
 import {
@@ -144,6 +145,12 @@ export function evaluateBudget(doc: BudgetDocument): BudgetEvaluation {
       income: invalid,
       allocated: invalid,
       leftToPlan: invalid,
+      actualRows: Object.create(null),
+      remainingRows: Object.create(null),
+      actualGroups: Object.create(null),
+      actualIncome: invalid,
+      actualAllocated: invalid,
+      leftUnspent: invalid,
     };
   }
 
@@ -268,7 +275,56 @@ export function evaluateBudget(doc: BudgetDocument): BudgetEvaluation {
   const leftToPlan = result(() =>
     safeMinor(BigInt(amount(income)) - BigInt(amount(allocated))),
   );
-  return { rows, groups, income, allocated, leftToPlan };
+  const actualRows: Record<string, AmountResult> = Object.create(null);
+  const remainingRows: Record<string, AmountResult> = Object.create(null);
+  const actualGroups: Record<string, AmountResult> = Object.create(null);
+  for (const item of doc.rows) {
+    if (item.allocationRole !== "allocation" || item.actualMinor == null)
+      continue;
+    actualRows[item.id] = success(item.actualMinor);
+    remainingRows[item.id] = result(() =>
+      safeMinor(BigInt(amount(row(item.id))) - BigInt(item.actualMinor!)),
+    );
+  }
+  for (const item of doc.groups) {
+    actualGroups[item.id] = result(() =>
+      sum(
+        (members.get(item.id) ?? [])
+          .filter((id) => actualRows[id])
+          .map((id) => actualRows[id]),
+      ),
+    );
+  }
+  const actualIncome = result(() =>
+    sum(
+      doc.groups
+        .filter((item) => item.classification === "income")
+        .map((item) => actualGroups[item.id]),
+    ),
+  );
+  const actualAllocated = result(() =>
+    sum(
+      doc.groups
+        .filter((item) => item.classification !== "income")
+        .map((item) => actualGroups[item.id]),
+    ),
+  );
+  const leftUnspent = result(() =>
+    safeMinor(BigInt(amount(actualIncome)) - BigInt(amount(actualAllocated))),
+  );
+  return {
+    rows,
+    groups,
+    income,
+    allocated,
+    leftToPlan,
+    actualRows,
+    remainingRows,
+    actualGroups,
+    actualIncome,
+    actualAllocated,
+    leftUnspent,
+  };
 }
 
 export function assertValidBudget(
@@ -282,6 +338,12 @@ export function assertValidBudget(
     evaluated.income,
     evaluated.allocated,
     evaluated.leftToPlan,
+    ...Object.values(evaluated.actualRows),
+    ...Object.values(evaluated.remainingRows),
+    ...Object.values(evaluated.actualGroups),
+    evaluated.actualIncome,
+    evaluated.actualAllocated,
+    evaluated.leftUnspent,
   ]) {
     if (!item.ok)
       throw new BudgetValidationError(item.error.message, item.error.code);
@@ -315,4 +377,30 @@ export function describeRule(rule: AmountRule, doc: BudgetDocument): string {
     case "expression":
       return expression(rule.expression);
   }
+}
+
+export function describeActual(
+  row: { actualMinor?: number | null; allocationRole: string },
+  planned: AmountResult,
+  classification: Classification,
+) {
+  if (row.allocationRole !== "allocation" || row.actualMinor == null)
+    return null;
+  if (!planned.ok) return "Actual recorded";
+  const remaining = planned.amountMinor - row.actualMinor;
+  const verb =
+    classification === "income"
+      ? "Received"
+      : classification === "saving"
+        ? "Set aside"
+        : "Spent";
+  if (remaining === 0)
+    return `${verb} ${formatMinor(row.actualMinor)} · on plan`;
+  if (remaining > 0)
+    return `${verb} ${formatMinor(row.actualMinor)} · ${formatMinor(remaining)} left`;
+  return `${verb} ${formatMinor(row.actualMinor)} · ${formatMinor(-remaining)} over`;
+}
+
+export function hasRecordedActuals(evaluation: BudgetEvaluation) {
+  return Object.keys(evaluation.actualRows).length > 0;
 }

@@ -6,6 +6,8 @@
 
 Each row can store an optional payment day from 1 to 31. Its complete date comes from the row's budget month. When the requested day does not exist, such as day 31 in February, the schedule uses the last day of that month. Only allocation rows appear in the upcoming list; informational totals remain display-only.
 
+Allocation rows can also store an optional actual amount in pence. Actuals do not change planned totals. Remaining is planned minus actual. Display-only rows cannot record actuals. Copying a month or saving a template drops actuals so the new plan starts unspent. Carrying leftover into the next month adds last month's left-to-plan to the first savings allocation row, or creates a savings row if none exists.
+
 The UI loads and saves through `BudgetRepository`. SQLite is the native source of truth; an edit is validated, committed, and read back before replacing the screen's document. The month picker converts its zero-based month index at the UI boundary.
 
 Templates store a versioned detached structure. Copying a month or applying a template generates a new month ID and new group/row IDs and remaps every reference, including references inside nested arithmetic. There are no links to the source document. Copies start unlocked with revision zero.
