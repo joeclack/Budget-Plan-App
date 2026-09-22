@@ -3,27 +3,38 @@ import test from "node:test";
 import {
   addGroup,
   addRow,
+  applyLeftoverCarry,
+  assignLeftoverToSpending,
+  applyTemplateToMonth,
   assertValidBudget,
   assertValidTemplate,
+  clearMonthActuals,
   copyBudget,
+  currentMonthTemplate,
   createBlankMonth,
   createTemplate,
+  describeActual,
   describeRule,
   evaluateBudget,
   formatMinor,
   instantiateTemplate,
+  missingCurrentMonth,
   moveRow,
   newId,
   parseMoney,
   removeGroup,
   removeRow,
   renameGroup,
+  releaseSpending,
   renameRow,
   reorderGroups,
   reorderRows,
   renameTemplate,
   replaceTemplateStructure,
+  setRowActual,
+  spendingAmount,
   setRowRule,
+  setTemplateRowRule,
   sortGroupRows,
   readGroupPresentationMap,
   type AmountResult,
@@ -446,6 +457,40 @@ test("all copy and template references are remapped with detached identities", (
   copied.rows[0].notes = "Changed copy";
   assert.equal(source.rows[0].notes, "");
   assert.equal(template.structure.rows[0].notes, "");
+  assert.equal(instance.month.templateId, template.id);
+  assert.equal(copied.month.templateId, undefined);
+  assert.equal(copyBudget(instance, 2027, 2).month.templateId, template.id);
+});
+
+test("applying a template replaces an existing month in place", () => {
+  const current = setRowActual(sample(), "rent", 45000);
+  const blank = addGroup(createBlankMonth(2026, 1), "Income", "income");
+  const planned = addRow(blank, blank.groups[0].id, "Pay", fixed(200000));
+  const template = createTemplate(planned, "Simple");
+  const applied = applyTemplateToMonth(current, template);
+  assert.equal(applied.month.id, current.month.id);
+  assert.equal(applied.month.revision, current.month.revision);
+  assert.equal(applied.month.year, 2026);
+  assert.equal(applied.month.month, 9);
+  assert.equal(applied.groups.length, 1);
+  assert.equal(applied.groups[0].title, "Income");
+  assert.equal(applied.groups[0].monthId, current.month.id);
+  assert.equal(applied.rows.length, 1);
+  assert.equal(applied.rows[0].label, "Pay");
+  assert.equal(applied.rows[0].actualMinor, undefined);
+  assert.equal(applied.month.templateId, template.id);
+  assert.equal(currentMonthTemplate(applied, [template])?.id, template.id);
+  assert.equal(currentMonthTemplate(sample(), [template])?.id, template.id);
+  assert.equal(currentMonthTemplate(sample(), []), undefined);
+  assert.notEqual(applied.groups[0].id, current.groups[0].id);
+  assert.equal(value(evaluateBudget(applied).income), 200000);
+  assert.equal(
+    current.rows.find((row) => row.id === "rent")?.actualMinor,
+    45000,
+  );
+  const locked = sample();
+  locked.month.isLocked = true;
+  assert.throws(() => applyTemplateToMonth(locked, template), /Unlock/);
 });
 
 test("templates reject external references and unsupported schemas", () => {
@@ -461,6 +506,21 @@ test("templates reject external references and unsupported schemas", () => {
     /version/,
   );
   assert.throws(() => createTemplate(sample(), "  "), /non-empty/);
+});
+
+test("templates keep row identities when a take-home amount is applied", () => {
+  const template = createTemplate(sample(), "Household");
+  const salary = template.structure.rows.find((row) => row.label === "Salary")!;
+  const updated = setTemplateRowRule(template, salary.id, fixed(301334));
+  assert.equal(updated.id, template.id);
+  assert.deepEqual(
+    updated.structure.rows.find((row) => row.id === salary.id)?.rule,
+    fixed(301334),
+  );
+  assert.deepEqual(
+    template.structure.rows.find((row) => row.id === salary.id)?.rule,
+    fixed(100000),
+  );
 });
 
 test("templates can be renamed or replaced without linking back to a month", () => {
@@ -647,4 +707,173 @@ test("locked months reject editing while copies become independent unlocked mont
   assert.equal(copyBudget(doc, 2026, 10).month.isLocked, false);
   assert.throws(() => createBlankMonth(2026, 0));
   assert.throws(() => createBlankMonth(0, 1));
+});
+
+test("actuals do not change the plan and copies start unspent", () => {
+  const recorded = setRowActual(sample(), "rent", 45000);
+  const totals = evaluateBudget(recorded);
+  assert.equal(value(totals.leftToPlan), 30000);
+  assert.equal(value(totals.rows.rent), 50000);
+  assert.equal(value(totals.actualRows.rent), 45000);
+  assert.equal(value(totals.remainingRows.rent), 5000);
+  assert.equal(value(totals.actualAllocated), 45000);
+  assert.equal(value(totals.leftUnspent), -45000);
+  assert.equal(
+    describeActual(recorded.rows[1], totals.rows.rent, "expense"),
+    "Spent £450.00 · £50.00 left",
+  );
+  const exact = setRowActual(recorded, "rent", 50000);
+  assert.equal(
+    describeActual(exact.rows[1], evaluateBudget(exact).rows.rent, "expense"),
+    "Spent £500.00 · on plan",
+  );
+  const over = setRowActual(recorded, "rent", 60000);
+  assert.equal(
+    describeActual(over.rows[1], evaluateBudget(over).rows.rent, "expense"),
+    "Spent £600.00 · £100.00 over",
+  );
+  assert.equal(copyBudget(recorded, 2026, 10).rows[1].actualMinor, undefined);
+  assert.equal(
+    createTemplate(recorded, "Reusable").structure.rows.find(
+      (row) => row.label === "Rent",
+    )?.actualMinor,
+    undefined,
+  );
+  assert.throws(() => setRowActual(sample(), "bill-total", 1), /Display-only/);
+  const cleared = clearMonthActuals(recorded);
+  assert.equal(
+    cleared.rows.find((row) => row.id === "rent")?.actualMinor,
+    undefined,
+  );
+  assert.equal(value(evaluateBudget(cleared).leftToPlan), 30000);
+  assert.equal(evaluateBudget(cleared).actualRows.rent, undefined);
+  const locked = sample();
+  locked.month.isLocked = true;
+  locked.rows[1].actualMinor = 45000;
+  assert.throws(() => clearMonthActuals(locked), /Unlock/);
+});
+
+test("next month can take leftover into the first savings row", () => {
+  const blank = createBlankMonth(2026, 9);
+  blank.month.revision = 1;
+  const withIncome = addGroup(blank, "Income", "income");
+  const withBills = addGroup(withIncome, "Bills", "expense");
+  const incomeId = withBills.groups[0].id;
+  const billsId = withBills.groups[1].id;
+  const source = addRow(
+    addRow(withBills, incomeId, "Salary", fixed(100000)),
+    billsId,
+    "Rent",
+    fixed(70000),
+  );
+  const created = applyLeftoverCarry(source, copyBudget(source, 2026, 10));
+  const leftoverRow = created.rows.find(
+    (row) => row.label === "Last month leftover",
+  );
+  assert.ok(leftoverRow);
+  assert.equal(leftoverRow.rule.kind, "fixed");
+  if (leftoverRow.rule.kind === "fixed")
+    assert.equal(leftoverRow.rule.amountMinor, 30000);
+  const saved = addGroup(source, "Savings", "saving");
+  const withHoliday = addRow(
+    saved,
+    saved.groups.find((group) => group.classification === "saving")!.id,
+    "Holiday",
+    fixed(5000),
+  );
+  const carried = applyLeftoverCarry(source, copyBudget(withHoliday, 2026, 10));
+  const holiday = carried.rows.find((row) => row.label === "Holiday")!;
+  assert.equal(holiday.rule.kind, "fixed");
+  if (holiday.rule.kind === "fixed")
+    assert.equal(holiday.rule.amountMinor, 35000);
+  assert.equal(
+    missingCurrentMonth(
+      [{ id: "september", year: 2026, month: 9 }],
+      new Date(2026, 8, 15),
+    ),
+    null,
+  );
+  assert.equal(
+    missingCurrentMonth(
+      [{ id: "september", year: 2026, month: 9 }],
+      new Date(2026, 9, 2),
+    )?.source?.id,
+    "september",
+  );
+});
+
+test("leftover can be assigned to Spending so income is fully planned", () => {
+  const blank = createBlankMonth(2026, 9);
+  blank.month.revision = 1;
+  const withIncome = addGroup(blank, "Income", "income");
+  const withBills = addGroup(withIncome, "Bills", "expense");
+  const incomeId = withBills.groups[0].id;
+  const billsId = withBills.groups[1].id;
+  const open = addRow(
+    addRow(withBills, incomeId, "Salary", fixed(100000)),
+    billsId,
+    "Rent",
+    fixed(70000),
+  );
+  const first = assignLeftoverToSpending(open);
+  const spending = first.rows.find((row) => row.label === "Spending");
+  const spendingGroup = first.groups.find(
+    (group) => group.title === "Spending",
+  );
+  assert.ok(spending);
+  assert.equal(spending?.groupId, spendingGroup?.id);
+  assert.equal(spendingGroup?.classification, "expense");
+  if (spending?.rule.kind === "fixed")
+    assert.equal(spending.rule.amountMinor, 30000);
+  const evaluation = evaluateBudget(first);
+  assert.equal(value(evaluation.leftToPlan), 0);
+  assert.equal(value(evaluation.allocated), value(evaluation.income));
+  assert.equal(spendingAmount(open), null);
+  assert.equal(value(spendingAmount(first)!), 30000);
+  assert.equal(assignLeftoverToSpending(first), first);
+
+  const toppedUp = assignLeftoverToSpending(
+    addRow(first, incomeId, "Bonus", fixed(20000)),
+  );
+  const updated = toppedUp.rows.find((row) => row.label === "Spending");
+  if (updated?.rule.kind === "fixed")
+    assert.equal(updated.rule.amountMinor, 50000);
+  assert.equal(value(evaluateBudget(toppedUp).leftToPlan), 0);
+
+  const salary = first.rows.find((row) => row.label === "Salary")!;
+  const calculated = setRowRule(first, spending!.id, {
+    kind: "percentage",
+    rate: "10",
+    source: { kind: "row", id: salary.id },
+  });
+  assert.throws(() => assignLeftoverToSpending(calculated), /fixed amount/);
+  const locked = { ...open, month: { ...open.month, isLocked: true } };
+  assert.throws(() => assignLeftoverToSpending(locked), /Unlock/);
+
+  const released = releaseSpending(first);
+  assert.equal(spendingAmount(released), null);
+  assert.equal(
+    released.groups.some((group) => group.title === "Spending"),
+    false,
+  );
+  assert.equal(value(evaluateBudget(released).leftToPlan), 30000);
+  assert.equal(releaseSpending(released), released);
+
+  const inBills = addRow(open, billsId, "Spending", fixed(30000));
+  const releasedBills = releaseSpending(inBills);
+  assert.equal(
+    releasedBills.groups.some((group) => group.id === billsId),
+    true,
+  );
+  assert.equal(
+    releasedBills.rows.some((row) => row.label === "Spending"),
+    false,
+  );
+  assert.equal(value(evaluateBudget(releasedBills).leftToPlan), 30000);
+  assert.throws(() => releaseSpending(calculated), /fixed amount/);
+  const lockedSpending = {
+    ...first,
+    month: { ...first.month, isLocked: true },
+  };
+  assert.throws(() => releaseSpending(lockedSpending), /Unlock/);
 });

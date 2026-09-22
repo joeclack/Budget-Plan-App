@@ -4,7 +4,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { spacing, useAppColors } from "@/theme/tokens";
 
-export function Screen({ children }: PropsWithChildren) {
+export function Screen({
+  children,
+  header = "tabs",
+}: PropsWithChildren<{ header?: "tabs" | "stack" }>) {
   const colors = useAppColors();
   const insets = useSafeAreaInsets();
 
@@ -15,13 +18,16 @@ export function Screen({ children }: PropsWithChildren) {
         contentContainerStyle={[
           styles.content,
           {
-            // Native tabs float at the top on web and at the bottom on iPhone.
             paddingTop:
-              insets.top + spacing.md + (Platform.OS === "web" ? 64 : 0),
+              header === "stack"
+                ? spacing.md
+                : insets.top + spacing.md + (Platform.OS === "web" ? 64 : 0),
             paddingBottom: insets.bottom + spacing.xxl + spacing.xl,
           },
         ]}
-        contentInsetAdjustmentBehavior="never"
+        contentInsetAdjustmentBehavior={
+          header === "stack" ? "automatic" : "never"
+        }
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}

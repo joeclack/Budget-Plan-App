@@ -18,7 +18,7 @@ npx expo start --go
 
 The project targets Expo SDK 57. Native tabs use the SDK 57 `expo-router/unstable-native-tabs` API and adopt the system tab appearance. Liquid Glass controls use `expo-glass-effect` on supported iOS versions and an opaque accessible fallback elsewhere.
 
-The SQLite schema is initialized through `SQLiteProvider` and versioned with `PRAGMA user_version`. The current schema is version 3; upgrades preserve existing budgets and add optional payment days transactionally.
+The SQLite schema is initialized through `SQLiteProvider` and versioned with `PRAGMA user_version`. The current schema is version 5; upgrades preserve existing budgets and add optional payment days and recorded actuals transactionally.
 
 ## Budget persistence and calculations
 
@@ -26,13 +26,16 @@ The Budget tab reads saved months and derives its figures from their rules. A ne
 
 - Tap any row to edit its name, notes, group and amount rule. Choose a fixed amount, percentage of another row/group, group total or custom arithmetic calculation.
 - Give allocation rows an optional payment day from 1 to 31. The budget shows the effective date on each row and lists the next three payments, including anything due today, in date order; a day beyond the end of a short month uses that month's final day.
+- Record an optional actual amount on an allocation row. The planned amount stays the same; the row shows what was received, spent or set aside and how much is left or over. Recorded leftover appears in the month summary. Copies and templates start without last month's actuals.
+- When a new calendar month has started and has no budget yet, start it from the previous month, optionally carrying anything left to plan into savings.
 - Use Add row and Edit group to build income, spending and savings groups. Each editor previews the new totals and connected amounts before saving; Close discards the draft.
 - Use Arrange to reorder groups and rows, or choose another group in a row's editor to move it. References follow the row's identity when it moves or is renamed.
 - Delete from the row/group editor. The confirmation previews the effect; deletion is blocked if surviving rules depend on the removed items.
 - Lock completed months to prevent edits; explicitly unlock them when needed. Copies and saved templates remain available while locked.
 - Choose an unused month from the title picker, then start blank, copy a saved month, or use a template.
 - Add a group or save the current month as a reusable template. Copies and templates have independent IDs and remapped references.
-- Use Manage templates at the bottom of the Budget page to rename or delete templates, or replace a template's saved groups, rows, amounts and payment days with the current month. Existing budget months remain independent.
+- Use Manage templates on the Settings tab to rename or delete templates, or replace a template's saved groups, rows, amounts and payment days with the current month. Existing budget months remain independent.
+- Use Back up or restore on the Settings tab to save every month, template, payment day, group layout and take-home setting into one file, or replace the data on this phone from a file you saved earlier. The file is checked before anything is replaced. An invalid file leaves the current budgets untouched.
 - Edits affect only the selected month. Templates are independent snapshots; save a new template to reuse a revised structure.
 
 The Take-home tab calculates a monthly estimate from annual salary, a whole-salary pension rate and pension method. It supports England, Wales and Northern Ireland for tax years 2025/26 and 2026/27. Applying an estimate lets you choose an unlocked month's income row and saves the row change with a versioned calculation snapshot in one transaction.

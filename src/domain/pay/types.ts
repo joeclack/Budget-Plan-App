@@ -6,6 +6,7 @@ export type PayProfile = {
   id: "primary";
   annualSalaryMinor: number;
   pensionRateBps: number;
+  employerPensionRateBps: number;
   pensionMethod: PensionMethod;
   pensionBasis: "whole_salary";
   country: PayCountry;

@@ -1,3 +1,5 @@
+import { Host, Picker } from "@expo/ui";
+import { SegmentedControl } from "@expo/ui/community/segmented-control";
 import type { PropsWithChildren } from "react";
 import {
   Keyboard,
@@ -9,6 +11,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useColorScheme,
   View,
 } from "react-native";
 import { GlassButton } from "@/components/glass-button";
@@ -19,11 +22,13 @@ export function EditorSheet({
   busy,
   onClose,
   children,
+  dismissLabel = "Close",
   scrollEnabled = true,
 }: PropsWithChildren<{
   title: string;
   busy: boolean;
   onClose: () => void;
+  dismissLabel?: string;
   scrollEnabled?: boolean;
 }>) {
   const colors = useAppColors();
@@ -54,13 +59,13 @@ export function EditorSheet({
           </Text>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Close ${title}`}
+            accessibilityLabel={`${dismissLabel} ${title}`}
             disabled={busy}
             onPress={close}
             hitSlop={12}
           >
             <Text style={[typography.callout, { color: colors.accent }]}>
-              Close
+              {dismissLabel}
             </Text>
           </Pressable>
         </View>
@@ -194,6 +199,84 @@ export function Choices<T extends string>({
     </View>
   );
 }
+
+export function Select<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+  disabled?: boolean;
+}) {
+  const colors = useAppColors();
+  const colorScheme = useColorScheme() === "dark" ? "dark" : "light";
+  return (
+    <View style={editorStyles.selectRow}>
+      <Heading>{label}</Heading>
+      <Host
+        colorScheme={colorScheme}
+        matchContents
+        seedColor={colors.accent}
+        style={editorStyles.select}
+      >
+        <Picker
+          appearance="menu"
+          enabled={!disabled}
+          selectedValue={value}
+          onValueChange={onChange}
+        >
+          {options.map((option) => (
+            <Picker.Item
+              key={option.value}
+              label={option.label}
+              value={option.value}
+            />
+          ))}
+        </Picker>
+      </Host>
+    </View>
+  );
+}
+
+export function SegmentedSelect<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+  disabled = false,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (value: T) => void;
+  disabled?: boolean;
+}) {
+  const colors = useAppColors();
+  const colorScheme = useColorScheme() === "dark" ? "dark" : "light";
+  const selectedIndex = options.findIndex((option) => option.value === value);
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <Heading>{label}</Heading>
+      <SegmentedControl
+        appearance={colorScheme}
+        enabled={!disabled}
+        selectedIndex={selectedIndex < 0 ? 0 : selectedIndex}
+        style={editorStyles.segmented}
+        tintColor={colors.accent}
+        values={options.map((option) => option.label)}
+        onChange={({ nativeEvent }) => {
+          const next = options[nativeEvent.selectedSegmentIndex];
+          if (next) onChange(next.value);
+        }}
+      />
+    </View>
+  );
+}
 export function Action({
   label,
   onPress,
@@ -243,6 +326,13 @@ export const editorStyles = StyleSheet.create({
     fontSize: 17,
   },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
+  selectRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  select: { minHeight: 36 },
+  segmented: { minHeight: 36, width: "100%" },
   choice: {
     paddingHorizontal: 12,
     paddingVertical: 10,

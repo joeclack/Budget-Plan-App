@@ -8,6 +8,7 @@ import {
 } from "../src/db/browser-repository";
 import { BudgetStorageError } from "../src/db/repository";
 import type { BudgetDocument, BudgetTemplate } from "../src/domain/budget";
+import { initialiseBudget } from "../src/features/budget/initialise";
 import { calculatePay } from "../src/domain/pay";
 import type { PayProfile } from "../src/domain/pay";
 
@@ -151,6 +152,7 @@ test("browser pay settings, due dates and an applied estimate persist atomically
     id: "primary",
     annualSalaryMinor: 4_800_000,
     pensionRateBps: 500,
+    employerPensionRateBps: 0,
     pensionMethod: "net_pay",
     pensionBasis: "whole_salary",
     country: "england",
@@ -385,5 +387,71 @@ test("template timestamps reject stale writers and advance on rapid consecutive 
   await assert.rejects(
     first.deleteTemplate(updated.id, updated.updatedAt),
     hasCode("NOT_FOUND"),
+  );
+});
+
+test("browser backup replace is atomic and a failed write keeps the previous preview", async () => {
+  const storage = new MemoryStorage();
+  const repository = createBrowserRepository(storage);
+  const saved = await repository.saveMonth(document());
+  const profile: PayProfile = {
+    id: "primary",
+    annualSalaryMinor: 3_000_000,
+    pensionRateBps: 0,
+    employerPensionRateBps: 0,
+    pensionMethod: "net_pay",
+    pensionBasis: "whole_salary",
+    country: "england",
+    taxYear: "2025/26",
+    updatedAt: "2026-09-22T00:00:00.000Z",
+  };
+  const storedProfile = await repository.savePayProfile(profile);
+  const exported = await repository.exportStore();
+  storage.failWrites = true;
+  await assert.rejects(
+    repository.restoreStore({
+      ...exported,
+      months: [],
+      templates: [],
+      payProfile: null,
+      paySnapshots: [],
+      selectedMonthId: null,
+      groupPresentation: {},
+    }),
+  );
+  storage.failWrites = false;
+  assert.equal((await repository.listMonths()).length, 1);
+  assert.deepEqual(await repository.getPayProfile(), storedProfile);
+  await repository.restoreStore({
+    ...exported,
+    months: [],
+    templates: [],
+    payProfile: null,
+    paySnapshots: [],
+    selectedMonthId: null,
+    groupPresentation: {},
+  });
+  assert.deepEqual(await repository.listMonths(), []);
+  assert.equal(await repository.getPayProfile(), null);
+  await repository.restoreStore(exported);
+  assert.equal(
+    (await repository.loadMonth(saved.month.id))?.month.revision,
+    saved.month.revision,
+  );
+  assert.deepEqual(await repository.getPayProfile(), storedProfile);
+});
+
+test("browser preview copies last month forward when the setting is on", async () => {
+  const storage = new MemoryStorage();
+  const repository = createBrowserRepository(storage);
+  await repository.saveMonth(document());
+  assert.equal(await repository.getAutoApplyRecentMonth(), false);
+  await repository.setAutoApplyRecentMonth(true);
+  const opened = await initialiseBudget(repository, new Date(2026, 9, 2));
+  assert.equal(opened.document?.month.month, 10);
+  assert.equal(opened.autoApplyRecentMonth, true);
+  assert.equal(
+    await createBrowserRepository(storage).getAutoApplyRecentMonth(),
+    true,
   );
 });
