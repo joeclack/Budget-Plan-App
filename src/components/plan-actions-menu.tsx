@@ -14,18 +14,22 @@ import { useAppColors } from "@/theme/tokens";
 type PlanActionsMenuProps = {
   busy: boolean;
   canArrange: boolean;
+  canCollapseAll: boolean;
   isLocked: boolean;
   onAddGroup: () => void;
   onArrange: () => void;
+  onCollapseAll: () => void;
   onToggleLock: () => void;
 };
 
 export function PlanActionsMenu({
   busy,
   canArrange,
+  canCollapseAll,
   isLocked,
   onAddGroup,
   onArrange,
+  onCollapseAll,
   onToggleLock,
 }: PlanActionsMenuProps) {
   const colors = useAppColors();
@@ -60,6 +64,12 @@ export function PlanActionsMenu({
           modifiers={[disabled(editingDisabled || !canArrange)]}
           systemImage="arrow.up.arrow.down"
           onPress={onArrange}
+        />
+        <Button
+          label="Collapse all"
+          modifiers={[disabled(busy || !canCollapseAll)]}
+          systemImage="rectangle.compress.vertical"
+          onPress={onCollapseAll}
         />
         <Button
           label={isLocked ? "Unlock month" : "Lock month"}

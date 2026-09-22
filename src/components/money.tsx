@@ -40,8 +40,8 @@ export function Money({
 }
 
 const styles = StyleSheet.create({
-  hero: typography.display,
-  heroSmall: typography.title3,
+  hero: { ...typography.display, fontVariant: ["tabular-nums"] },
+  heroSmall: { ...typography.title3, fontVariant: ["tabular-nums"] },
   strong: { fontSize: 19, fontWeight: "700", lineHeight: 24 },
   body: typography.headline,
 });

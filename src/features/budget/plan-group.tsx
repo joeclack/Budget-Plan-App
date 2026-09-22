@@ -10,6 +10,7 @@ import { BudgetAmount } from "@/components/budget-amount";
 import { GroupMenu } from "@/components/group-menu";
 import { SectionCard } from "@/components/section-card";
 import {
+  describeActual,
   describeRule,
   dueDateLabel,
   sortGroupRows,
@@ -75,15 +76,17 @@ export function PlanGroup({
         }[group.classification]
       }
       titleAccessory={
-        <GroupMenu
-          busy={busy}
-          canEdit={!document.month.isLocked}
-          groupTitle={group.title}
-          sort={sort}
-          onAddRow={onAddRow}
-          onEditGroup={onEditGroup}
-          onSort={onSortChange}
-        />
+        collapsed ? undefined : (
+          <GroupMenu
+            busy={busy}
+            canEdit={!document.month.isLocked}
+            groupTitle={group.title}
+            sort={sort}
+            onAddRow={onAddRow}
+            onEditGroup={onEditGroup}
+            onSort={onSortChange}
+          />
+        )
       }
       footer={
         <View
@@ -121,10 +124,15 @@ export function PlanGroup({
               {row.label}
             </Text>
             <Text style={[styles.rowDetail, { color: colors.secondaryText }]}>
-              {row.rule.kind === "fixed"
-                ? row.notes ||
-                  (document.month.isLocked ? "Fixed amount" : "Tap to edit")
-                : describeRule(row.rule, document)}
+              {describeActual(
+                row,
+                evaluation.rows[row.id],
+                group.classification,
+              ) ??
+                (row.rule.kind === "fixed"
+                  ? row.notes ||
+                    (document.month.isLocked ? "Fixed amount" : "Tap to edit")
+                  : describeRule(row.rule, document))}
               {row.allocationRole === "informational" ? " · display only" : ""}
               {row.dueDay
                 ? ` · ${dueDateLabel(document.month.year, document.month.month, row.dueDay)}`

@@ -9,21 +9,30 @@ import {
   View,
 } from "react-native";
 
-import { BudgetAmount } from "@/components/budget-amount";
 import { BudgetInputSheet } from "@/components/budget-input-sheet";
 import { GlassButton } from "@/components/glass-button";
+import { GlassIconButton } from "@/components/glass-icon-button";
 import { MonthPickerSheet } from "@/components/month-picker-sheet";
 import { PlanActionsMenu } from "@/components/plan-actions-menu";
+import { PlanSummary } from "@/components/plan-summary";
 import { Screen } from "@/components/screen";
+import { UpcomingSheet } from "@/components/upcoming-sheet";
 import {
-  dueDateLabel,
+  currentMonthTemplate,
   evaluateBudget,
-  upcomingPayments,
+  formatMinor,
+  spendingAmount,
+  hasRecordedActuals,
+  isSamePeriod,
+  missingCurrentMonth,
+  scheduledPayments,
 } from "@/domain/budget";
 import type {
-  AmountResult,
+  BudgetDocument,
+  BudgetEvaluation,
   BudgetRow,
   BudgetGroup,
+  BudgetTemplate,
 } from "@/domain/budget/types";
 import {
   ArrangeEditor,
@@ -31,19 +40,24 @@ import {
   GroupEditor,
   RowEditor,
 } from "@/features/budget/budget-editors";
-import { Action, EditorSheet, Note } from "@/features/budget/editor-controls";
+import {
+  Action,
+  EditorSheet,
+  Heading,
+  Note,
+} from "@/features/budget/editor-controls";
 import { PlanGroup } from "@/features/budget/plan-group";
 import { useBudget } from "@/features/budget/use-budget";
-import { TemplateManager } from "@/features/budget/template-manager";
 import { radius, spacing, typography, useAppColors } from "@/theme/tokens";
 
 type Editor =
   | { kind: "group"; group?: BudgetGroup }
-  | { kind: "template" }
-  | { kind: "templateManager" }
+  | { kind: "template"; asNew?: boolean }
   | { kind: "row"; row?: BudgetRow; groupId: string }
   | { kind: "arrange" }
   | { kind: "lock" }
+  | { kind: "reset" }
+  | { kind: "apply-template"; template?: BudgetTemplate }
   | {
       kind: "delete";
       target: { kind: "row" | "group"; id: string; label: string };
@@ -59,6 +73,7 @@ export default function BudgetScreen() {
   const colors = useAppColors();
   const budget = useBudget();
   const [isMonthPickerOpen, setIsMonthPickerOpen] = useState(false);
+  const [isUpcomingOpen, setIsUpcomingOpen] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
   const { state, busy, error } = budget;
 
@@ -88,9 +103,28 @@ export default function BudgetScreen() {
 
   const { document, period } = state;
   const evaluation = document ? evaluateBudget(document) : null;
+  const activeTemplate = document
+    ? currentMonthTemplate(document, state.templates)
+    : undefined;
   const payments =
-    document && evaluation ? upcomingPayments(document, evaluation.rows) : [];
+    document && evaluation
+      ? scheduledPayments(document, evaluation.rows).filter(
+          (payment) => payment.status !== "past",
+        )
+      : [];
+  const upcomingEmptyMessage = document?.rows.some(
+    (row) => row.dueDay != null && row.allocationRole === "allocation",
+  )
+    ? "Nothing left this month."
+    : "Add payment days to rows to see what is coming up.";
   const monthLabel = monthName(period.year, period.month);
+  const nextMonth = missingCurrentMonth(state.months);
+  const leftover =
+    nextMonth?.source &&
+    document &&
+    isSamePeriod(document.month, nextMonth.source)
+      ? evaluation?.leftToPlan
+      : null;
   function openEditor(next: Editor) {
     budget.clearError();
     setEditor(next);
@@ -98,37 +132,100 @@ export default function BudgetScreen() {
 
   return (
     <Screen>
-      <View>
-        <Text style={[styles.eyebrow, { color: colors.secondaryText }]}>
-          MONTHLY PLAN
-        </Text>
-        <Pressable
-          accessibilityLabel={`Choose budget month, currently ${monthLabel}`}
-          accessibilityRole="button"
-          disabled={busy}
-          onPress={() => setIsMonthPickerOpen(true)}
-          style={({ pressed }) => [
-            styles.monthTitleRow,
-            pressed && styles.pressed,
-          ]}
-        >
-          <Text
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.75}
-            style={[styles.title, { color: colors.text }]}
-          >
-            {monthLabel}
+      <View style={styles.header}>
+        <View style={styles.headerCopy}>
+          <Text style={[styles.eyebrow, { color: colors.secondaryText }]}>
+            MONTHLY PLAN
           </Text>
-          <SymbolView
-            fallback={<Text style={{ color: colors.accent }}>⌄</Text>}
-            name="chevron.down"
-            size={18}
-            tintColor={colors.accent}
-            weight="semibold"
-          />
-        </Pressable>
+          <Pressable
+            accessibilityLabel={`Choose budget month, currently ${monthLabel}`}
+            accessibilityRole="button"
+            disabled={busy}
+            onPress={() => setIsMonthPickerOpen(true)}
+            style={({ pressed }) => [
+              styles.monthTitleRow,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.75}
+              style={[styles.title, { color: colors.text }]}
+            >
+              {monthLabel}
+            </Text>
+            <SymbolView
+              fallback={<Text style={{ color: colors.accent }}>⌄</Text>}
+              name="chevron.down"
+              size={18}
+              tintColor={colors.accent}
+              weight="semibold"
+            />
+          </Pressable>
+        </View>
+        <GlassIconButton
+          accessibilityLabel="Show upcoming transactions"
+          onPress={() => setIsUpcomingOpen(true)}
+          systemImage="calendar"
+        />
       </View>
+
+      {nextMonth && !isSamePeriod(period, nextMonth) ? (
+        <View style={[styles.message, { backgroundColor: colors.accentSoft }]}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>
+            Start {monthName(nextMonth.year, nextMonth.month)}
+          </Text>
+          <Text style={{ color: colors.secondaryText }}>
+            You are still looking at {monthLabel}. Start the current month from
+            a copy, or carry anything left to plan into savings.
+          </Text>
+          {nextMonth.source ? (
+            <>
+              <GlassButton
+                accessibilityLabel={`Copy ${monthName(nextMonth.source.year, nextMonth.source.month)} into ${monthName(nextMonth.year, nextMonth.month)}`}
+                disabled={busy}
+                label={`Copy ${monthName(nextMonth.source.year, nextMonth.source.month)}`}
+                onPress={() =>
+                  void budget.createMonth(nextMonth.source!.id, undefined, {
+                    year: nextMonth.year,
+                    month: nextMonth.month,
+                  })
+                }
+              />
+              {leftover?.ok ? (
+                <GlassButton
+                  accessibilityLabel={`Copy ${monthName(nextMonth.source.year, nextMonth.source.month)} and carry leftover`}
+                  disabled={busy}
+                  label={
+                    leftover.amountMinor === 0
+                      ? "Copy and carry leftover"
+                      : `Copy and carry ${formatMinor(leftover.amountMinor)} leftover`
+                  }
+                  prominent
+                  onPress={() =>
+                    void budget.createMonth(nextMonth.source!.id, undefined, {
+                      carryLeftover: true,
+                      year: nextMonth.year,
+                      month: nextMonth.month,
+                    })
+                  }
+                />
+              ) : null}
+            </>
+          ) : (
+            <GlassButton
+              accessibilityLabel={`Start ${monthName(nextMonth.year, nextMonth.month)} blank`}
+              disabled={busy}
+              label="Start current month blank"
+              prominent
+              onPress={() =>
+                void budget.selectPeriod(nextMonth.year, nextMonth.month)
+              }
+            />
+          )}
+        </View>
+      ) : null}
 
       {error && !editor ? (
         <View style={[styles.message, { backgroundColor: colors.accentSoft }]}>
@@ -144,85 +241,14 @@ export default function BudgetScreen() {
 
       {document && evaluation ? (
         <>
-          <View
-            accessibilityLabel="Budget summary"
-            style={[
-              styles.summary,
-              { backgroundColor: colors.hero, borderColor: colors.heroBorder },
-            ]}
-          >
-            <Text
-              style={[styles.summaryLabel, { color: colors.heroSecondaryText }]}
-            >
-              Left to plan
-            </Text>
-            <BudgetAmount result={evaluation.leftToPlan} variant="hero" />
-            <View style={styles.summaryBreakdown}>
-              <SummaryItem label="Income" result={evaluation.income} />
-              <View
-                style={[styles.divider, { backgroundColor: colors.heroBorder }]}
-              />
-              <SummaryItem label="Allocated" result={evaluation.allocated} />
-            </View>
-          </View>
-
-          <View style={styles.sectionHeading}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>
-              Upcoming
-            </Text>
-          </View>
-          {payments.length ? (
-            <View
-              style={[
-                styles.upcoming,
-                { backgroundColor: colors.surface, borderColor: colors.border },
-              ]}
-            >
-              {payments.map((payment, index) => (
-                <View
-                  key={payment.row.id}
-                  style={[
-                    styles.upcomingRow,
-                    index > 0 && {
-                      borderTopColor: colors.separator,
-                      borderTopWidth: StyleSheet.hairlineWidth,
-                    },
-                  ]}
-                >
-                  <View style={styles.rowCopy}>
-                    <Text style={[styles.rowLabel, { color: colors.text }]}>
-                      {payment.row.label}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.rowDetail,
-                        { color: colors.secondaryText },
-                      ]}
-                    >
-                      {payment.status === "today"
-                        ? "Today"
-                        : dueDateLabel(
-                            document.month.year,
-                            document.month.month,
-                            payment.row.dueDay!,
-                          )}{" "}
-                      ·{" "}
-                      {payment.classification === "income"
-                        ? "income"
-                        : payment.classification === "saving"
-                          ? "saving"
-                          : "payment"}
-                    </Text>
-                  </View>
-                  <BudgetAmount result={payment.amount} />
-                </View>
-              ))}
-            </View>
-          ) : (
-            <Text style={{ color: colors.secondaryText }}>
-              Add payment days to rows to see what is coming up.
-            </Text>
-          )}
+          <PlanSummary
+            evaluation={evaluation}
+            headline={summaryHeadline(document, evaluation)}
+            spendingToggle={spendingToggle(document, evaluation, {
+              disabled: busy || document.month.isLocked,
+              onValueChange: (enabled) => void budget.setSpending(enabled),
+            })}
+          />
 
           <View style={styles.sectionHeading}>
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
@@ -231,9 +257,13 @@ export default function BudgetScreen() {
             <PlanActionsMenu
               busy={busy}
               canArrange={document.groups.length > 1}
+              canCollapseAll={document.groups.some(
+                (group) => !budget.groupPresentation(group.id).collapsed,
+              )}
               isLocked={document.month.isLocked}
               onAddGroup={() => openEditor({ kind: "group" })}
               onArrange={() => openEditor({ kind: "arrange" })}
+              onCollapseAll={budget.collapseAllGroups}
               onToggleLock={() => openEditor({ kind: "lock" })}
             />
           </View>
@@ -253,9 +283,7 @@ export default function BudgetScreen() {
                 evaluation={evaluation}
                 group={group}
                 sort={budget.groupPresentation(group.id).sort}
-                onAddRow={() =>
-                  openEditor({ kind: "row", groupId: group.id })
-                }
+                onAddRow={() => openEditor({ kind: "row", groupId: group.id })}
                 onCollapsedChange={(collapsed) =>
                   budget.setGroupCollapsed(group.id, collapsed)
                 }
@@ -267,16 +295,44 @@ export default function BudgetScreen() {
               />
             ))}
           <GlassButton
-            accessibilityLabel="Save this budget as a template"
+            accessibilityLabel={
+              activeTemplate
+                ? `Update ${activeTemplate.name} or save as a new template`
+                : "Save as a new template"
+            }
             disabled={busy}
-            label="Save as template"
+            label={
+              activeTemplate ? `Update ${activeTemplate.name}` : "Save as new"
+            }
             onPress={() => openEditor({ kind: "template" })}
           />
           <GlassButton
-            accessibilityLabel={`Manage ${state.templates.length} ${state.templates.length === 1 ? "template" : "templates"}`}
-            disabled={busy}
-            label={`Manage templates (${state.templates.length})`}
-            onPress={() => openEditor({ kind: "templateManager" })}
+            accessibilityLabel={
+              document.month.isLocked
+                ? "Unlock this month before changing its template"
+                : state.templates.length
+                  ? `Change ${monthLabel} to a different template`
+                  : "Save a template before changing this month"
+            }
+            disabled={
+              busy || document.month.isLocked || !state.templates.length
+            }
+            label="Change template"
+            onPress={() => openEditor({ kind: "apply-template" })}
+          />
+          <GlassButton
+            accessibilityLabel={
+              document.month.isLocked
+                ? "Unlock this month before resetting it"
+                : hasRecordedActuals(evaluation)
+                  ? `Reset recorded actuals for ${monthLabel}`
+                  : "No recorded actuals to reset"
+            }
+            disabled={
+              busy || document.month.isLocked || !hasRecordedActuals(evaluation)
+            }
+            label="Reset month"
+            onPress={() => openEditor({ kind: "reset" })}
           />
           <Text style={[styles.footnote, { color: colors.secondaryText }]}>
             {busy
@@ -301,6 +357,19 @@ export default function BudgetScreen() {
             onPress={() => void budget.createMonth()}
             prominent
           />
+          {nextMonth && isSamePeriod(period, nextMonth) && nextMonth.source ? (
+            <GlassButton
+              accessibilityLabel={`Copy ${monthName(nextMonth.source.year, nextMonth.source.month)} and carry leftover`}
+              disabled={busy}
+              label={`Copy ${monthName(nextMonth.source.year, nextMonth.source.month)} and carry leftover`}
+              prominent
+              onPress={() =>
+                void budget.createMonth(nextMonth.source!.id, undefined, {
+                  carryLeftover: true,
+                })
+              }
+            />
+          ) : null}
           {state.months.length ? (
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
               Copy a saved month
@@ -329,31 +398,42 @@ export default function BudgetScreen() {
               onPress={() => void budget.createMonth(undefined, template.id)}
             />
           ))}
-          <GlassButton
-            accessibilityLabel={`Manage ${state.templates.length} ${state.templates.length === 1 ? "template" : "templates"}`}
-            disabled={busy}
-            label={`Manage templates (${state.templates.length})`}
-            onPress={() => openEditor({ kind: "templateManager" })}
-          />
         </View>
       )}
 
-      {editor?.kind === "templateManager" ? (
-        <TemplateManager
-          templates={state.templates}
-          document={document}
+      {editor?.kind === "template" && activeTemplate && !editor.asNew ? (
+        <EditorSheet
+          title="Save template"
           busy={busy}
-          error={error}
-          onRename={budget.renameTemplate}
-          onReplace={budget.replaceTemplate}
-          onDelete={budget.deleteTemplate}
           onClose={() => setEditor(null)}
-        />
+        >
+          <Note>
+            Replace {activeTemplate.name} with this month, or save a new
+            template.
+          </Note>
+          {error ? <Note>{error}</Note> : null}
+          <Action
+            label={`Update ${activeTemplate.name}`}
+            prominent
+            disabled={busy}
+            onPress={() => {
+              void budget
+                .replaceTemplate(activeTemplate, { attach: true })
+                .then((saved) => {
+                  if (saved) setEditor(null);
+                });
+            }}
+          />
+          <Action
+            label="Save as new"
+            disabled={busy}
+            onPress={() => openEditor({ kind: "template", asNew: true })}
+          />
+        </EditorSheet>
       ) : null}
-
-      {editor?.kind === "template" ? (
+      {editor?.kind === "template" && (!activeTemplate || editor.asNew) ? (
         <BudgetInputSheet
-          title="Save a template"
+          title="Save as new"
           label="Template name"
           busy={busy}
           error={error}
@@ -425,6 +505,85 @@ export default function BudgetScreen() {
           onClose={() => setEditor(null)}
         />
       ) : null}
+      {document && editor?.kind === "apply-template" ? (
+        <EditorSheet
+          title="Change template"
+          busy={busy}
+          onClose={() => setEditor(null)}
+        >
+          {editor.template ? (
+            <>
+              <Heading>Use {editor.template.name}?</Heading>
+              <Note>
+                This replaces {monthLabel}&apos;s groups, rows and recorded
+                actuals with the template. The calendar month stays the same.
+              </Note>
+              {error ? <Note>{error}</Note> : null}
+              <Action
+                label={`Use ${editor.template.name}`}
+                prominent
+                disabled={busy}
+                onPress={() => {
+                  void budget
+                    .applyTemplate(editor.template.id)
+                    .then((saved) => {
+                      if (saved) setEditor(null);
+                    });
+                }}
+              />
+              <Action
+                label="Choose a different template"
+                disabled={busy}
+                onPress={() => openEditor({ kind: "apply-template" })}
+              />
+            </>
+          ) : (
+            <>
+              <Note>Choose a template to replace this month&apos;s plan.</Note>
+              {error ? <Note>{error}</Note> : null}
+              {state.templates.map((template) => (
+                <Action
+                  key={template.id}
+                  accessibilityLabel={`Use template ${template.name}`}
+                  disabled={busy}
+                  label={template.name}
+                  onPress={() =>
+                    openEditor({ kind: "apply-template", template })
+                  }
+                />
+              ))}
+            </>
+          )}
+        </EditorSheet>
+      ) : null}
+      {document && editor?.kind === "reset" ? (
+        <EditorSheet
+          title="Reset month"
+          busy={busy}
+          onClose={() => setEditor(null)}
+        >
+          <Note>
+            This clears every recorded actual for {monthLabel}. Planned amounts,
+            groups and rules stay as they are.
+          </Note>
+          {error ? <Note>{error}</Note> : null}
+          <Action
+            label="Reset month"
+            prominent
+            disabled={busy}
+            onPress={() => {
+              void budget.resetMonth().then((saved) => {
+                if (saved) setEditor(null);
+              });
+            }}
+          />
+          <Action
+            label="Keep actuals"
+            disabled={busy}
+            onPress={() => setEditor(null)}
+          />
+        </EditorSheet>
+      ) : null}
       {document && editor?.kind === "lock" ? (
         <EditorSheet
           title={document.month.isLocked ? "Unlock month" : "Lock month"}
@@ -433,8 +592,8 @@ export default function BudgetScreen() {
         >
           <Note>
             {document.month.isLocked
-              ? "Unlock this month to edit its rows, groups and rules again."
-              : "Lock this month to prevent accidental edits. You can still copy it or save a template, and unlock it whenever you need to."}
+              ? "Unlock this month to edit its rows, groups, rules and actuals again."
+              : "Lock this month when the plan and actuals are finished. You can still copy it or save a template, and unlock it whenever you need to."}
           </Note>
           {error ? <Note>{error}</Note> : null}
           <Action
@@ -448,6 +607,19 @@ export default function BudgetScreen() {
             }}
           />
         </EditorSheet>
+      ) : null}
+      {isUpcomingOpen ? (
+        <UpcomingSheet
+          emptyMessage={
+            document
+              ? upcomingEmptyMessage
+              : "Start this month to see upcoming transactions."
+          }
+          month={period.month}
+          payments={payments}
+          year={period.year}
+          onClose={() => setIsUpcomingOpen(false)}
+        />
       ) : null}
       {isMonthPickerOpen ? (
         <MonthPickerSheet
@@ -464,27 +636,38 @@ export default function BudgetScreen() {
   );
 }
 
-function SummaryItem({
-  label,
-  result,
-}: {
-  label: string;
-  result: AmountResult;
-}) {
-  const colors = useAppColors();
-  return (
-    <View style={styles.summaryItem}>
-      <Text
-        style={[styles.summaryItemLabel, { color: colors.heroSecondaryText }]}
-      >
-        {label}
-      </Text>
-      <BudgetAmount result={result} variant="heroSmall" />
-    </View>
-  );
+function summaryHeadline(
+  document: BudgetDocument,
+  evaluation: BudgetEvaluation,
+) {
+  const spending = spendingAmount(document);
+  return spending
+    ? { label: "Spending", result: spending }
+    : { label: "Left to plan", result: evaluation.leftToPlan };
+}
+
+function spendingToggle(
+  document: BudgetDocument,
+  evaluation: BudgetEvaluation,
+  action: {
+    disabled: boolean;
+    onValueChange: (enabled: boolean) => void;
+  },
+) {
+  const enabled = spendingAmount(document) != null;
+  const canTurnOn =
+    evaluation.leftToPlan.ok && evaluation.leftToPlan.amountMinor > 0;
+  if (!enabled && !canTurnOn) return null;
+  return { ...action, enabled };
 }
 
 const styles = StyleSheet.create({
+  header: {
+    alignItems: "flex-end",
+    flexDirection: "row",
+    gap: spacing.md,
+  },
+  headerCopy: { flex: 1 },
   monthTitleRow: {
     alignSelf: "flex-start",
     maxWidth: "100%",
@@ -495,23 +678,6 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.65 },
   eyebrow: { ...typography.eyebrow, marginBottom: spacing.xs },
   title: { ...typography.largeTitle, flexShrink: 1 },
-  summary: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    gap: spacing.sm,
-    overflow: "hidden",
-    padding: spacing.lg,
-  },
-  summaryLabel: typography.caption,
-  summaryBreakdown: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: spacing.md,
-    marginTop: spacing.sm,
-  },
-  summaryItem: { flex: 1, gap: 3 },
-  summaryItemLabel: typography.caption,
-  divider: { height: 32, width: StyleSheet.hairlineWidth },
   sectionHeading: {
     alignItems: "center",
     flexDirection: "row",
@@ -519,21 +685,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   sectionTitle: typography.title2,
-  rowCopy: { flex: 1, gap: 3, paddingRight: spacing.md },
-  rowLabel: typography.body,
-  rowDetail: typography.caption,
   footnote: { ...typography.caption, textAlign: "center" },
   emptyMonth: { gap: spacing.md },
   message: { padding: spacing.md, borderRadius: radius.md, gap: spacing.sm },
-  upcoming: {
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    paddingHorizontal: spacing.md,
-  },
-  upcomingRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    minHeight: 56,
-    paddingVertical: spacing.sm,
-  },
 });

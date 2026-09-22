@@ -1,23 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useBudgetRepository } from "../../db/context";
 import {
+  applyLeftoverCarry,
+  assignLeftoverToSpending,
+  releaseSpending,
+  applyTemplateToMonth,
+  clearMonthActuals,
   copyBudget,
   createBlankMonth,
   createTemplate,
+  defaultGroupPresentation,
+  groupPresentationFor,
   instantiateTemplate,
   renameTemplate,
   replaceTemplateStructure,
-} from "../../domain/budget";
-import type { BudgetTemplate } from "../../domain/budget";
-import {
-  defaultGroupPresentation,
-  groupPresentationFor,
+  type BudgetDocument,
+  type BudgetTemplate,
   type GroupPresentation,
   type GroupRowSort,
 } from "../../domain/budget";
-import type { BudgetDocument } from "../../domain/budget/types";
 import { initialiseBudget, type BudgetState } from "./initialise";
-import { subscribeBudgetChanges } from "./changes";
+import { notifyBudgetChanged, subscribeBudgetChanges } from "./changes";
+import { shareBudgetArchive } from "./backup-transfer";
+import type { BudgetArchive } from "../../domain/backup";
 import type { PayEstimateSnapshot } from "../../domain/pay";
 
 export function useBudget() {
@@ -114,6 +119,7 @@ export function useBudget() {
       templates: state?.templates ?? [],
       period: { year: saved.month.year, month: saved.month.month },
       groupPresentation: state?.groupPresentation ?? {},
+      autoApplyRecentMonth: state?.autoApplyRecentMonth ?? false,
     };
   }
 
@@ -149,14 +155,24 @@ export function useBudget() {
         if (document) await repository.setSelectedMonthId(document.month.id);
         return { ...state, document, period: { year, month } };
       }),
-    createMonth: (sourceId?: string, templateId?: string) =>
+    createMonth: (
+      sourceId?: string,
+      templateId?: string,
+      options?: { carryLeftover?: boolean; year?: number; month?: number },
+    ) =>
       run(async () => {
         if (!state) throw new Error("Choose a month first.");
-        const { year, month } = state.period;
+        const year = options?.year ?? state.period.year;
+        const month = options?.month ?? state.period.month;
         if (sourceId) {
           const source = await repository.loadMonth(sourceId);
           if (!source) throw new Error("The source month could not be found.");
-          return committed(copyBudget(source, year, month));
+          const copied = copyBudget(source, year, month);
+          return committed(
+            options?.carryLeftover
+              ? applyLeftoverCarry(source, copied)
+              : copied,
+          );
         }
         if (templateId) {
           const template = await repository.loadTemplate(templateId);
@@ -167,6 +183,15 @@ export function useBudget() {
       }),
     saveDraft: (draft: BudgetDocument, snapshot?: PayEstimateSnapshot) =>
       run(() => committed(draft, snapshot)),
+    setSpending: (enabled: boolean) =>
+      run(async () => {
+        if (!state?.document) throw new Error("Open a budget first.");
+        const next = enabled
+          ? assignLeftoverToSpending(state.document)
+          : releaseSpending(state.document);
+        if (next === state.document) return state;
+        return committed(next);
+      }),
     setLocked: (locked: boolean) =>
       run(async () => {
         if (!state?.document) throw new Error("Open a budget first.");
@@ -175,14 +200,32 @@ export function useBudget() {
           await repository.setMonthLocked(month.id, month.revision, locked),
         );
       }),
+    resetMonth: () =>
+      run(async () => {
+        if (!state?.document) throw new Error("Open a budget first.");
+        return committed(clearMonthActuals(state.document));
+      }),
+    applyTemplate: (templateId: string) =>
+      run(async () => {
+        if (!state?.document) throw new Error("Open a budget first.");
+        const template = await repository.loadTemplate(templateId);
+        if (!template) throw new Error("The template could not be found.");
+        return committed(applyTemplateToMonth(state.document, template));
+      }),
     saveTemplate: (name: string) =>
       run(async () => {
         if (!state?.document) throw new Error("Open a budget first.");
         const saved = await repository.saveTemplate(
           createTemplate(state.document, name),
         );
+        const document = await repository.setMonthTemplateId(
+          state.document.month.id,
+          state.document.month.revision,
+          saved.id,
+        );
+        notifyBudgetChanged();
         return {
-          ...state,
+          ...savedState(document),
           templates: [...state.templates, saved].sort((a, b) =>
             a.name.localeCompare(b.name),
           ),
@@ -194,6 +237,7 @@ export function useBudget() {
         const saved = await repository.saveTemplate(
           renameTemplate(template, name),
         );
+        notifyBudgetChanged();
         return {
           ...state,
           templates: [
@@ -202,14 +246,30 @@ export function useBudget() {
           ].sort((a, b) => a.name.localeCompare(b.name)),
         };
       }),
-    replaceTemplate: (template: BudgetTemplate) =>
+    replaceTemplate: (
+      template: BudgetTemplate,
+      options?: { attach?: boolean },
+    ) =>
       run(async () => {
         if (!state?.document) throw new Error("Open a saved month first.");
         const saved = await repository.saveTemplate(
           replaceTemplateStructure(template, state.document),
         );
+        const document =
+          options?.attach && state.document.month.templateId !== saved.id
+            ? await repository.setMonthTemplateId(
+                state.document.month.id,
+                state.document.month.revision,
+                saved.id,
+              )
+            : state.document;
+        notifyBudgetChanged();
         return {
           ...state,
+          document,
+          months: state.months.map((month) =>
+            month.id === document.month.id ? document.month : month,
+          ),
           templates: state.templates.map((item) =>
             item.id === saved.id ? saved : item,
           ),
@@ -219,8 +279,22 @@ export function useBudget() {
       run(async () => {
         if (!state) throw new Error("Open the template manager again.");
         await repository.deleteTemplate(template.id, template.updatedAt);
+        notifyBudgetChanged();
+        const document =
+          state.document?.month.templateId === template.id
+            ? {
+                ...state.document,
+                month: { ...state.document.month, templateId: undefined },
+              }
+            : state.document;
         return {
           ...state,
+          document,
+          months: state.months.map((month) =>
+            month.templateId === template.id
+              ? { ...month, templateId: undefined }
+              : month,
+          ),
           templates: state.templates.filter((item) => item.id !== template.id),
         };
       }),
@@ -228,7 +302,41 @@ export function useBudget() {
       groupPresentationFor(state?.groupPresentation ?? {}, groupId),
     setGroupCollapsed: (groupId: string, collapsed: boolean) =>
       patchPresentation(groupId, { collapsed }),
+    collapseAllGroups: () => {
+      setState((current) => {
+        if (!current?.document) return current;
+        const next = { ...current.groupPresentation };
+        for (const group of current.document.groups) {
+          next[group.id] = {
+            ...defaultGroupPresentation,
+            ...next[group.id],
+            collapsed: true,
+          };
+        }
+        void repository.saveGroupPresentation(next).catch(() => undefined);
+        return { ...current, groupPresentation: next };
+      });
+    },
     setGroupSort: (groupId: string, sort: GroupRowSort) =>
       patchPresentation(groupId, { sort }),
+    exportArchive: () =>
+      run(async () => {
+        if (!state)
+          throw new Error("Open your budgets before saving a backup.");
+        await shareBudgetArchive(await repository.exportStore());
+        return state;
+      }),
+    restoreArchive: (archive: BudgetArchive) =>
+      run(async () => {
+        await repository.restoreStore(archive);
+        notifyBudgetChanged();
+        return initialise();
+      }),
+    setAutoApplyRecentMonth: (value: boolean) =>
+      run(async () => {
+        await repository.setAutoApplyRecentMonth(value);
+        notifyBudgetChanged();
+        return initialise();
+      }),
   };
 }

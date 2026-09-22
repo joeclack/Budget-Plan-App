@@ -40,7 +40,13 @@ export function editRow(
   document: BudgetDocument,
   value: Pick<
     BudgetRow,
-    "label" | "notes" | "dueDay" | "groupId" | "rule" | "allocationRole"
+    | "label"
+    | "notes"
+    | "dueDay"
+    | "actualMinor"
+    | "groupId"
+    | "rule"
+    | "allocationRole"
   >,
   id?: string,
 ): BudgetDocument {
@@ -54,18 +60,26 @@ export function editRow(
         .filter((item) => item.groupId === value.groupId && item.id !== id)
         .map((item) => item.sortOrder),
     ) + 1;
+  const actualMinor =
+    value.allocationRole === "allocation" ? (value.actualMinor ?? null) : null;
   if (row)
     Object.assign(row, value, {
       label: value.label.trim(),
+      actualMinor,
       sortOrder: row.groupId === value.groupId ? row.sortOrder : position,
     });
   else
     draft.rows.push({
       ...value,
       label: value.label.trim(),
+      actualMinor,
       id: newId(),
       sortOrder: position,
     });
+  if (actualMinor == null) {
+    const saved = row ?? draft.rows[draft.rows.length - 1];
+    delete saved.actualMinor;
+  }
   assertValidBudget(draft);
   return draft;
 }

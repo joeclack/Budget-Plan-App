@@ -1,3 +1,4 @@
+import { assertBudgetArchive, type BudgetArchive } from "../domain/backup";
 import {
   assertValidBudget,
   assertValidTemplate,
@@ -26,6 +27,7 @@ type Snapshot = {
   payProfile?: PayProfile | null;
   paySnapshots?: PayEstimateSnapshot[];
   groupPresentation?: GroupPresentationMap;
+  autoApplyRecentMonth?: boolean;
 };
 
 function invalidStorage(): BudgetStorageError {
@@ -150,6 +152,12 @@ function validateSnapshot(value: unknown): asserts value is Snapshot {
     )
       throw invalidStorage();
   }
+  if (
+    snapshot.autoApplyRecentMonth !== undefined &&
+    typeof snapshot.autoApplyRecentMonth !== "boolean"
+  ) {
+    throw invalidStorage();
+  }
 }
 
 /** Each operation reads fresh storage; failed writes never update a memory cache. */
@@ -167,6 +175,7 @@ export function createBrowserRepository(
         payProfile: null,
         paySnapshots: [],
         groupPresentation: {},
+        autoApplyRecentMonth: false,
       };
     }
     let snapshot: unknown;
@@ -373,6 +382,41 @@ export function createBrowserRepository(
       write(snapshot);
       return sortDocument(saved);
     },
+    async setMonthTemplateId(id, revision, templateId) {
+      assertId(id);
+      assertId(templateId);
+      if (
+        !Number.isSafeInteger(revision) ||
+        revision < 1 ||
+        revision >= Number.MAX_SAFE_INTEGER
+      )
+        throw new BudgetStorageError(
+          "INVALID_DATA",
+          "Invalid month template request.",
+        );
+      const snapshot = read();
+      const saved = snapshot.months.find((item) => item.month.id === id);
+      if (!saved)
+        throw new BudgetStorageError(
+          "NOT_FOUND",
+          "This month no longer exists.",
+        );
+      if (saved.month.revision !== revision)
+        throw new BudgetStorageError(
+          "CONFLICT",
+          "This month has changed. Reload it before changing its template.",
+        );
+      if (!snapshot.templates.some((item) => item.id === templateId))
+        throw new BudgetStorageError(
+          "NOT_FOUND",
+          "The template could not be found.",
+        );
+      saved.month.templateId = templateId;
+      saved.month.revision += 1;
+      saved.month.updatedAt = new Date().toISOString();
+      write(snapshot);
+      return sortDocument(saved);
+    },
     async listTemplates() {
       return read().templates.sort(
         (a, b) =>
@@ -431,6 +475,9 @@ export function createBrowserRepository(
           "This template has changed. Reload it before deleting it.",
         );
       snapshot.templates = snapshot.templates.filter((item) => item.id !== id);
+      for (const document of snapshot.months) {
+        if (document.month.templateId === id) delete document.month.templateId;
+      }
       write(snapshot);
     },
     async getPayProfile() {
@@ -466,6 +513,44 @@ export function createBrowserRepository(
       const snapshot = read();
       snapshot.groupPresentation = readGroupPresentationMap(value);
       write(snapshot);
+    },
+    async getAutoApplyRecentMonth() {
+      return read().autoApplyRecentMonth === true;
+    },
+    async setAutoApplyRecentMonth(value) {
+      const snapshot = read();
+      snapshot.autoApplyRecentMonth = value === true;
+      write(snapshot);
+    },
+    async exportStore() {
+      const snapshot = read();
+      return assertBudgetArchive({
+        format: "budget-plan-backup",
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        months: snapshot.months.map((document) =>
+          sortDocument(clone(document)),
+        ),
+        templates: snapshot.templates,
+        payProfile: snapshot.payProfile ?? null,
+        paySnapshots: snapshot.paySnapshots ?? [],
+        selectedMonthId: snapshot.selectedMonthId,
+        groupPresentation: readGroupPresentationMap(snapshot.groupPresentation),
+        autoApplyRecentMonth: snapshot.autoApplyRecentMonth === true,
+      });
+    },
+    async restoreStore(input) {
+      const archive: BudgetArchive = assertBudgetArchive(clone(input));
+      write({
+        version: 1,
+        months: archive.months.map((document) => sortDocument(document)),
+        templates: archive.templates,
+        selectedMonthId: archive.selectedMonthId,
+        payProfile: archive.payProfile,
+        paySnapshots: archive.paySnapshots,
+        groupPresentation: archive.groupPresentation,
+        autoApplyRecentMonth: archive.autoApplyRecentMonth,
+      });
     },
   };
 }

@@ -30,6 +30,8 @@ export type BudgetMonth = {
   createdAt: string;
   updatedAt: string;
   revision: number;
+  /** Template this month was created from or last saved to. */
+  templateId?: string | null;
 };
 export type BudgetGroup = {
   id: string;
@@ -46,6 +48,8 @@ export type BudgetRow = {
   notes: string;
   /** Day of this budget month when the payment is expected. */
   dueDay?: number | null;
+  /** Recorded amount for this month. Omitted until something actually happens. */
+  actualMinor?: number | null;
   rule: AmountRule;
   allocationRole: AllocationRole;
   sortOrder: number;
@@ -76,4 +80,10 @@ export type BudgetEvaluation = {
   income: AmountResult;
   allocated: AmountResult;
   leftToPlan: AmountResult;
+  actualRows: Record<string, AmountResult>;
+  remainingRows: Record<string, AmountResult>;
+  actualGroups: Record<string, AmountResult>;
+  actualIncome: AmountResult;
+  actualAllocated: AmountResult;
+  leftUnspent: AmountResult;
 };

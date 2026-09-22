@@ -2,10 +2,25 @@ import {
   assertForeignKeys,
   inTransaction,
   serializeDatabase,
+  type SqlConnection,
   type SqlDatabase,
 } from "./sql";
 
-export const DATABASE_VERSION = 4;
+export const DATABASE_VERSION = 7;
+
+export async function ensureTemplateIdColumn(connection: SqlConnection) {
+  const columns = await connection.getAllAsync<{ name: string }>(
+    "PRAGMA table_info(budget_months)",
+  );
+  if (
+    columns.length === 0 ||
+    columns.some((column) => column.name === "template_id")
+  )
+    return;
+  await connection.execAsync(
+    "ALTER TABLE budget_months ADD COLUMN template_id TEXT;",
+  );
+}
 
 /**
  * Versions 5–7 were unreleased local experiments. They only added columns this
@@ -36,6 +51,7 @@ export async function migrateDatabase(db: SqlDatabase) {
         return;
       }
       if (currentVersion === DATABASE_VERSION) {
+        await ensureTemplateIdColumn(transaction);
         return;
       }
 
@@ -120,6 +136,15 @@ export async function migrateDatabase(db: SqlDatabase) {
       if (currentVersion < 4)
         await transaction.execAsync(
           "ALTER TABLE budget_groups ADD COLUMN color TEXT CHECK (color IS NULL OR color IN ('sky', 'ocean', 'mint', 'sun', 'peach', 'rose', 'orchid', 'violet'));",
+        );
+      if (currentVersion < 5)
+        await transaction.execAsync(
+          "ALTER TABLE budget_rows ADD COLUMN actual_minor INTEGER;",
+        );
+      if (currentVersion < 6) await ensureTemplateIdColumn(transaction);
+      if (currentVersion < 7)
+        await transaction.execAsync(
+          "ALTER TABLE pay_profiles ADD COLUMN employer_pension_rate_bps INTEGER NOT NULL DEFAULT 0;",
         );
       await assertForeignKeys(transaction);
       await transaction.execAsync(`PRAGMA user_version = ${DATABASE_VERSION};`);
