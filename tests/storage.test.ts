@@ -516,6 +516,28 @@ test("a queued save cannot be changed by mutating the caller's object", async (t
   assert.equal(saved.rows[0].label, "Salary");
 });
 
+test("abandoned schema versions 5 through 7 reopen without changing budget data", async (t) => {
+  const { db, repository } = await setup(t);
+  const saved = await repository.saveMonth(fixture());
+  await db.execAsync(
+    "ALTER TABLE budget_rows ADD COLUMN actual_minor INTEGER",
+  );
+  await db.execAsync(
+    "ALTER TABLE budget_months ADD COLUMN template_id TEXT",
+  );
+  await db.execAsync(
+    "ALTER TABLE pay_profiles ADD COLUMN employer_pension_rate_bps INTEGER NOT NULL DEFAULT 0",
+  );
+  await db.execAsync("PRAGMA user_version = 7");
+  await migrateDatabase(db);
+  assert.deepEqual(await repository.loadMonth(saved.month.id), saved);
+  assert.equal(
+    (await db.getFirstAsync<{ user_version: number }>("PRAGMA user_version"))
+      ?.user_version,
+    4,
+  );
+});
+
 test("newer database versions are refused without changing data", async (t) => {
   const { db, repository } = await setup(t);
   const saved = await repository.saveMonth(fixture());

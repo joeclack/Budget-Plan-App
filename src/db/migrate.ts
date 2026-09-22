@@ -7,6 +7,14 @@ import {
 
 export const DATABASE_VERSION = 4;
 
+/**
+ * Versions 5–7 were unreleased local experiments. They only added columns this
+ * schema ignores: nullable `actual_minor` and `template_id`, and
+ * `employer_pension_rate_bps` with a default. Those files reopen as version 4.
+ * The next real schema change must use version 8 or higher.
+ */
+const REOPENABLE_VERSION = 7;
+
 export async function migrateDatabase(db: SqlDatabase) {
   return serializeDatabase(db, async () => {
     await db.execAsync("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
@@ -17,9 +25,15 @@ export async function migrateDatabase(db: SqlDatabase) {
       const currentVersion = result?.user_version ?? 0;
 
       if (currentVersion > DATABASE_VERSION) {
-        throw new Error(
-          "This database was created by a newer app version. Update the app before opening it.",
+        if (currentVersion > REOPENABLE_VERSION) {
+          throw new Error(
+            "This database was created by a newer app version. Update the app before opening it.",
+          );
+        }
+        await transaction.execAsync(
+          `PRAGMA user_version = ${DATABASE_VERSION};`,
         );
+        return;
       }
       if (currentVersion === DATABASE_VERSION) {
         return;
